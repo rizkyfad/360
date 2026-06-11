@@ -253,19 +253,23 @@ function mul(A,B){const R=[[0,0,0],[0,0,0],[0,0,0]];for(let i=0;i<3;i++)for(let 
 /* ---------- constellation ---------- */
 function buildTargets(){
   const hFov=S.hFovDeg, vFov=2*R2D*Math.atan(Math.tan(hFov/2*D2R)*(4/3)); // portrait-ish capture ~3:4
-  const overlap = S.density==="full"?0.45:S.density==="light"?0.25:0.35;
-  const pStep=Math.max(18, vFov*(1-overlap));
+  const overlap = S.density==="full"?0.58:S.density==="light"?0.38:0.48;
+  // batasi langkah pitch supaya selalu ada baris di tengah (atas-bawah tidak "loncat")
+  const pCap = S.density==="full"?28:S.density==="light"?40:33;
+  const pStep=Math.min(Math.max(16, vFov*(1-overlap)), pCap);
   const colBase = 360/(hFov*(1-overlap));
   // urutan tetap: ring horizon dulu (mulai depan yaw 0), lalu ring atas & bawah bergantian, lalu kutub
   const ringsOrdered=[0];
-  for(let p=pStep;p<=62;p+=pStep){ ringsOrdered.push(p); ringsOrdered.push(-p); }
+  for(let p=pStep;p<=70;p+=pStep){ ringsOrdered.push(p); ringsOrdered.push(-p); }
   const list=[];
   for(const p of ringsOrdered){
-    const cols=Math.max(3, Math.round(colBase*Math.cos(p*D2R)));
-    for(let k=0;k<cols;k++){ list.push({yaw:wrapPi(k*TAU/cols), pitch:p*D2R, done:false}); }
+    const cols=Math.max(4, Math.round(colBase*Math.cos(p*D2R)));
+    // selang-seling offset yaw tiap baris biar overlap silang lebih rapat
+    const off = (ringsOrdered.indexOf(p)%2)? (TAU/cols)/2 : 0;
+    for(let k=0;k<cols;k++){ list.push({yaw:wrapPi(off+k*TAU/cols), pitch:p*D2R, done:false}); }
   }
-  list.push({yaw:0,pitch: 82*D2R, done:false}); // zenith
-  list.push({yaw:0,pitch:-82*D2R, done:false}); // nadir
+  list.push({yaw:0,pitch: 84*D2R, done:false}); // zenith
+  list.push({yaw:0,pitch:-84*D2R, done:false}); // nadir
   S.targets=list; S.shots=[]; S.activeIdx=-1;
   $("ctot").textContent=list.length; $("cdone").textContent=0;
   $("btnDone").disabled=true;
