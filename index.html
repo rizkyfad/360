@@ -542,15 +542,21 @@ function fillHoles(ctx,W,H){
 }
 
 /* ---------- export package for PC stitcher ---------- */
+function safeName(s){ return (s||"").trim().replace(/[\\/:*?"<>|]+/g,"-").replace(/\s+/g,"_").slice(0,60); }
 function exportPkg(){
   if(S.shots.length<2){ alert("Minimal 2 foto."); return; }
-  const pkg={ version:1, app:"foto360", createdAt:new Date().toISOString(),
+  let name=prompt("Nama lokasi untuk paket ini:", S.lastName||"");
+  if(name===null) return;            // batal
+  name=name.trim();
+  S.lastName=name;
+  const pkg={ version:1, app:"foto360", name:name, createdAt:new Date().toISOString(),
     hFovDeg:S.hFovDeg,
     shots:S.shots.map(s=>({ yaw:s.yaw, pitch:s.pitch, roll:s.roll, w:s.w, h:s.h,
       img:s.canvas.toDataURL("image/jpeg",0.9) })) };
   const blob=new Blob([JSON.stringify(pkg)],{type:"application/json"});
   const url=URL.createObjectURL(blob);
-  const a=document.createElement("a"); a.href=url; a.download="pano_"+Date.now()+".json"; a.click();
+  const fn=(safeName(name)||"pano")+"_"+Date.now()+".json";
+  const a=document.createElement("a"); a.href=url; a.download=fn; a.click();
   setTimeout(()=>URL.revokeObjectURL(url),8000);
 }
 
