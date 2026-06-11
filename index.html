@@ -20,23 +20,27 @@
   #view{position:relative; flex:1; min-height:0; background:#000; overflow:hidden;}
   video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
   #hud{position:absolute; inset:0; pointer-events:none;}
-  /* center aim frame */
+  /* fixed white aim dot = "you" */
+  #aimDot{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:26px; height:26px; border-radius:50%; background:#fff;
+    box-shadow:0 0 0 3px rgba(0,0,0,.35), 0 0 10px rgba(0,0,0,.45); z-index:6; pointer-events:none;}
+  /* white frame appears when target is near; fit the green box inside it */
   #frame{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:min(46vw,210px); aspect-ratio:3/4; border:2px solid rgba(255,255,255,.9);
-    border-radius:18px; box-shadow:0 0 0 9999px rgba(0,0,0,.04);}
-  /* center reticle = the aim; bring the green target into it */
-  #reticle{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:92px; height:92px; border-radius:50%; border:4px solid rgba(255,255,255,.95);
-    box-shadow:0 0 0 2px rgba(0,0,0,.35), inset 0 0 14px rgba(0,0,0,.25); pointer-events:none;}
+    width:150px; height:198px; border:3px solid rgba(255,255,255,.95); border-radius:18px;
+    opacity:0; transition:opacity .12s; z-index:4; pointer-events:none;
+    box-shadow:0 0 0 2px rgba(0,0,0,.25);}
+  #frame.show{opacity:1;}
+  /* moving green target with a hole; chase its hole onto the aim dot, box into the frame */
+  #target{position:absolute; width:138px; height:184px; border-radius:16px;
+    background:rgba(37,194,110,.82); transform:translate(-50%,-50%); display:none; z-index:5;
+    -webkit-mask:radial-gradient(circle at 50% 50%, transparent 22px, #000 24px);
+    mask:radial-gradient(circle at 50% 50%, transparent 22px, #000 24px);
+    box-shadow:0 0 26px rgba(37,194,110,.5); transition:background .1s;}
+  #target.lock{background:rgba(37,194,110,.96);}
   #holdRing{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:126px; height:126px; border-radius:50%; pointer-events:none;
-    background:conic-gradient(var(--ok) 0deg, rgba(255,255,255,.16) 0deg);
-    -webkit-mask:radial-gradient(transparent 47px,#000 49px); mask:radial-gradient(transparent 47px,#000 49px);}
-  /* moving target you chase into the reticle */
-  #target{position:absolute; width:78px; height:78px; border-radius:50%;
-    background:rgba(37,194,110,.85); transform:translate(-50%,-50%); display:none;
-    box-shadow:0 0 26px rgba(37,194,110,.55); transition:background .12s, box-shadow .12s;}
-  #target.lock{background:rgba(37,194,110,.97); box-shadow:0 0 38px rgba(37,194,110,.95);}
+    width:118px; height:118px; border-radius:50%; z-index:3; pointer-events:none;
+    background:conic-gradient(var(--ok) 0deg, rgba(255,255,255,.14) 0deg);
+    -webkit-mask:radial-gradient(transparent 49px,#000 51px); mask:radial-gradient(transparent 49px,#000 51px);}
   /* directional arrow when target is off-screen */
   #arrow{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     display:none; flex-direction:column; align-items:center; pointer-events:none;}
@@ -116,8 +120,9 @@
     <video id="video" playsinline autoplay muted></video>
     <div id="hud">
       <div id="holdRing"></div>
-      <div id="reticle"></div>
+      <div id="frame"></div>
       <div id="target"></div>
+      <div id="aimDot"></div>
       <div id="arrow"><div class="chev">›</div><div class="txt">putar</div></div>
       <div id="sensorWarn"></div>
       <div id="top">
@@ -211,7 +216,7 @@ const wrapPi=a=>{a=((a+Math.PI)%TAU+TAU)%TAU-Math.PI;return a;};
 const $=id=>document.getElementById(id);
 
 /* ---------- elements ---------- */
-const video=$("video"), targetEl=$("target"), arrowEl=$("arrow"), reticleEl=$("reticle"), holdRingEl=$("holdRing");
+const video=$("video"), targetEl=$("target"), arrowEl=$("arrow"), frameEl=$("frame"), aimDotEl=$("aimDot"), holdRingEl=$("holdRing");
 const constel=$("constel"), cctx=constel.getContext("2d");
 
 /* ---------- state ---------- */
@@ -251,10 +256,11 @@ function buildTargets(){
   const overlap = S.density==="full"?0.45:S.density==="light"?0.25:0.35;
   const pStep=Math.max(18, vFov*(1-overlap));
   const colBase = 360/(hFov*(1-overlap));
-  const ringP=[0];
-  for(let p=pStep;p<=62;p+=pStep){ringP.push(p);ringP.unshift(-p);}
+  // urutan tetap: ring horizon dulu (mulai depan yaw 0), lalu ring atas & bawah bergantian, lalu kutub
+  const ringsOrdered=[0];
+  for(let p=pStep;p<=62;p+=pStep){ ringsOrdered.push(p); ringsOrdered.push(-p); }
   const list=[];
-  for(const p of ringP){
+  for(const p of ringsOrdered){
     const cols=Math.max(3, Math.round(colBase*Math.cos(p*D2R)));
     for(let k=0;k<cols;k++){ list.push({yaw:wrapPi(k*TAU/cols), pitch:p*D2R, done:false}); }
   }
@@ -315,12 +321,7 @@ function onOrient(e){
 }
 
 /* ---------- main loop: HUD + constellation ---------- */
-function nearestPending(){
-  let best=-1,bd=1e9;
-  for(let i=0;i<S.targets.length;i++){ const t=S.targets[i]; if(t.done) continue;
-    const d=angDist(S.cur.yaw,S.cur.pitch,t.yaw,t.pitch); if(d<bd){bd=d;best=i;} }
-  return {idx:best,dist:bd};
-}
+function activeTarget(){ for(let i=0;i<S.targets.length;i++) if(!S.targets[i].done) return i; return -1; }
 function angDist(y1,p1,y2,p2){const a=dir(y1,p1),b=dir(y2,p2);return Math.acos(clamp(a.x*b.x+a.y*b.y+a.z*b.z,-1,1));}
 
 let liveHalfTanX, liveHalfTanY;
@@ -331,16 +332,16 @@ function loop(){
   liveHalfTanX=Math.tan(S.hFovDeg/2*D2R);
   liveHalfTanY=liveHalfTanX*(vh/vw);
 
-  const np=nearestPending(); S.activeIdx=np.idx;
+  S.activeIdx=activeTarget();                 // target TETAP & berurutan (tidak loncat)
   const t=S.activeIdx>=0?S.targets[S.activeIdx]:null;
 
   // level indicator
-  const level=Math.abs(S.cur.roll)<7;
+  const level=Math.abs(S.cur.roll)<8;
   const lvlEl=$("lvl");
   lvlEl.textContent= S.cur.has? ("LVL "+(level?"OK":(S.cur.roll>0?"→":"←"))) : "LVL —";
   lvlEl.className=level?"good":"";
 
-  // penanda target / panah / tahan-1-detik
+  // penanda target / bingkai / panah / tahan-1-detik
   const HOLD_MS=900, GRACE=1200;
   if(t && S.cur.has){
     const sp=project(t.yaw,t.pitch,S.cur.yaw,S.cur.pitch,vw,vh);
@@ -349,7 +350,9 @@ function loop(){
       arrowEl.style.display="none"; targetEl.style.display="block";
       targetEl.style.left=sp.x+"px"; targetEl.style.top=sp.y+"px";
       const dist=Math.hypot(sp.x-vw/2, sp.y-vh/2);
-      const aligned = dist < vw*0.11 && level;
+      const near = dist < vw*0.28;            // bingkai putih muncul saat dekat
+      const aligned = dist < vw*0.10 && level; // kotak hijau pas di bingkai, bolongan di bulatan
+      frameEl.classList.toggle("show", near);
       if(aligned){
         targetEl.classList.add("lock");
         if(!S.holdSince) S.holdSince=performance.now();
@@ -358,17 +361,17 @@ function loop(){
         if(prog>=1 && performance.now()-S.lastCapAt>500 && performance.now()-S.startAt>GRACE){ capture(S.activeIdx); resetHold(); }
       } else { targetEl.classList.remove("lock"); resetHold(); }
     } else {
-      targetEl.style.display="none"; resetHold(); showArrow(t,vw,vh);
+      targetEl.style.display="none"; frameEl.classList.remove("show"); resetHold(); showArrow(t,vw,vh);
     }
   } else {
-    targetEl.style.display="none"; arrowEl.style.display="none"; resetHold();
+    targetEl.style.display="none"; arrowEl.style.display="none"; frameEl.classList.remove("show"); resetHold();
   }
 
   drawConstel();
   requestAnimationFrame(loop);
 }
 
-function setHoldRing(p){ holdRingEl.style.background="conic-gradient(var(--ok) "+(p*360)+"deg, rgba(255,255,255,.16) "+(p*360)+"deg)"; }
+function setHoldRing(p){ holdRingEl.style.background="conic-gradient(var(--ok) "+(p*360)+"deg, rgba(255,255,255,.14) "+(p*360)+"deg)"; }
 function resetHold(){ S.holdSince=0; setHoldRing(0); }
 function showArrow(t,vw,vh){
   const ax=wrapPi(t.yaw-S.cur.yaw);     // + : target ke kanan
@@ -517,7 +520,7 @@ async function stitch(){
   fillHoles(octx,W,H);
 
   const url=out.toDataURL("image/jpeg",0.92);
-  $("rimg").src=url; S.resultUrl=url;
+  $("rimg").src=url; S.resultUrl=url; S.resultCanvas=out; S.resultName=S.lastName||"";
   $("rmeta").textContent=`${W}×${H} • ${S.shots.length} foto • equirectangular 2:1`;
   $("busy").style.display="none"; $("result").style.display="flex";
 }
@@ -543,6 +546,20 @@ function fillHoles(ctx,W,H){
 
 /* ---------- export package for PC stitcher ---------- */
 function safeName(s){ return (s||"").trim().replace(/[\\/:*?"<>|]+/g,"-").replace(/\s+/g,"_").slice(0,60); }
+// iOS Safari sering gagal pakai <a download>; pakai Web Share kalau ada
+async function saveBlob(blob, filename){
+  try{
+    const file=new File([blob], filename, {type:blob.type});
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file], title:filename});
+      return;
+    }
+  }catch(e){ if(e && e.name==="AbortError") return; }
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement("a"); a.href=url; a.download=filename; a.rel="noopener";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),10000);
+}
 function exportPkg(){
   if(S.shots.length<2){ alert("Minimal 2 foto."); return; }
   let name=prompt("Nama lokasi untuk paket ini:", S.lastName||"");
@@ -554,15 +571,13 @@ function exportPkg(){
     shots:S.shots.map(s=>({ yaw:s.yaw, pitch:s.pitch, roll:s.roll, w:s.w, h:s.h,
       img:s.canvas.toDataURL("image/jpeg",0.9) })) };
   const blob=new Blob([JSON.stringify(pkg)],{type:"application/json"});
-  const url=URL.createObjectURL(blob);
   const fn=(safeName(name)||"pano")+"_"+Date.now()+".json";
-  const a=document.createElement("a"); a.href=url; a.download=fn; a.click();
-  setTimeout(()=>URL.revokeObjectURL(url),8000);
+  saveBlob(blob, fn);
 }
 
 /* ---------- UI wiring ---------- */
 $("btnStart").onclick=start;
-$("shutter").onclick=()=>{ const np=nearestPending(); if(np.idx>=0) capture(np.idx); };
+$("shutter").onclick=()=>{ const i=activeTarget(); if(i>=0 && S.cur.has!==undefined) capture(i); };
 $("btnDone").onclick=()=>$("finish").style.display="flex";
 $("finishClose").onclick=()=>$("finish").style.display="none";
 $("finish").onclick=e=>{ if(e.target===$("finish")) $("finish").style.display="none"; };
@@ -584,8 +599,9 @@ document.querySelectorAll("#res button").forEach(b=>b.onclick=()=>{
 });
 $("resBack").onclick=$("resRetake").onclick=()=>{ $("result").style.display="none"; };
 $("resDownload").onclick=()=>{
-  const a=document.createElement("a"); a.href=S.resultUrl;
-  a.download="equirectangular_"+Date.now()+".jpg"; a.click();
+  if(!S.resultCanvas) return;
+  const base=safeName(S.resultName)||"equirectangular";
+  S.resultCanvas.toBlob(b=>saveBlob(b, base+"_"+Date.now()+".jpg"), "image/jpeg", 0.92);
 };
 sizeConstel();
 </script>
