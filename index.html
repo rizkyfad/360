@@ -24,18 +24,28 @@
   #frame{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
     width:min(46vw,210px); aspect-ratio:3/4; border:2px solid rgba(255,255,255,.9);
     border-radius:18px; box-shadow:0 0 0 9999px rgba(0,0,0,.04);}
-  /* moving target marker */
-  #target{position:absolute; width:min(38vw,170px); aspect-ratio:3/4; border-radius:14px;
-    background:rgba(37,194,110,.78); transform:translate(-50%,-50%);
-    display:flex; align-items:center; justify-content:center; transition:background .15s;}
-  #target .pill{font:700 19px/1 var(--ui); letter-spacing:.06em; color:#06210f;
-    background:#fff; border-radius:999px; padding:16px 4px; width:84px; height:84px;
-    display:flex; align-items:center; justify-content:center;
-    border:6px solid var(--ok);}
-  #target.off{background:rgba(120,140,160,.30);}
-  #target.off .pill{border-color:rgba(255,255,255,.55); color:#0B0F14; opacity:.0;}
+  /* center reticle = the aim; bring the green target into it */
+  #reticle{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:92px; height:92px; border-radius:50%; border:4px solid rgba(255,255,255,.95);
+    box-shadow:0 0 0 2px rgba(0,0,0,.35), inset 0 0 14px rgba(0,0,0,.25); pointer-events:none;}
+  #holdRing{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
+    width:126px; height:126px; border-radius:50%; pointer-events:none;
+    background:conic-gradient(var(--ok) 0deg, rgba(255,255,255,.16) 0deg);
+    -webkit-mask:radial-gradient(transparent 47px,#000 49px); mask:radial-gradient(transparent 47px,#000 49px);}
+  /* moving target you chase into the reticle */
+  #target{position:absolute; width:78px; height:78px; border-radius:50%;
+    background:rgba(37,194,110,.85); transform:translate(-50%,-50%); display:none;
+    box-shadow:0 0 26px rgba(37,194,110,.55); transition:background .12s, box-shadow .12s;}
+  #target.lock{background:rgba(37,194,110,.97); box-shadow:0 0 38px rgba(37,194,110,.95);}
+  /* directional arrow when target is off-screen */
   #arrow{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    font:700 30px var(--ui); color:var(--orange); text-shadow:0 1px 6px #000; display:none;}
+    display:none; flex-direction:column; align-items:center; pointer-events:none;}
+  #arrow .chev{font:800 60px/1 var(--ui); color:var(--orange); text-shadow:0 2px 10px #000; display:block;}
+  #arrow .txt{font:700 13px var(--ui); color:#fff; background:#000b; padding:5px 12px; border-radius:999px; margin-top:8px; white-space:nowrap;}
+  /* sensor warning banner */
+  #sensorWarn{position:absolute; left:50%; top:16%; transform:translateX(-50%); display:none;
+    max-width:82%; text-align:center; font:600 12.5px var(--ui); color:#150a02; background:var(--orange);
+    padding:10px 14px; border-radius:12px; box-shadow:0 4px 16px #0008; pointer-events:none; line-height:1.45;}
 
   /* top bar */
   #top{position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
@@ -105,9 +115,11 @@
   <div id="view">
     <video id="video" playsinline autoplay muted></video>
     <div id="hud">
-      <div id="frame"></div>
-      <div id="target" class="off"><div class="pill">HOLD</div></div>
-      <div id="arrow">›</div>
+      <div id="holdRing"></div>
+      <div id="reticle"></div>
+      <div id="target"></div>
+      <div id="arrow"><div class="chev">›</div><div class="txt">putar</div></div>
+      <div id="sensorWarn"></div>
       <div id="top">
         <div class="count"><b id="cdone">0</b>/<span id="ctot">0</span></div>
         <div id="lvl">LVL —</div>
@@ -199,7 +211,7 @@ const wrapPi=a=>{a=((a+Math.PI)%TAU+TAU)%TAU-Math.PI;return a;};
 const $=id=>document.getElementById(id);
 
 /* ---------- elements ---------- */
-const video=$("video"), frameEl=$("frame"), targetEl=$("target"), arrowEl=$("arrow");
+const video=$("video"), targetEl=$("target"), arrowEl=$("arrow"), reticleEl=$("reticle"), holdRingEl=$("holdRing");
 const constel=$("constel"), cctx=constel.getContext("2d");
 
 /* ---------- state ---------- */
@@ -257,25 +269,35 @@ function buildTargets(){
 /* ---------- camera + sensors ---------- */
 async function start(){
   $("gateErr").textContent="";
+  // 1) MINTA IZIN SENSOR DULU — harus di dalam gesture tap (syarat iOS), sebelum kamera
+  try{
+    if(typeof DeviceOrientationEvent!=="undefined" && typeof DeviceOrientationEvent.requestPermission==="function"){
+      const r=await DeviceOrientationEvent.requestPermission();
+      S.motionGranted=(r==="granted");
+    } else { S.motionGranted=true; } // Android / browser tanpa gate izin
+  }catch(e){ S.motionGranted=false; }
+  try{
+    if(typeof DeviceMotionEvent!=="undefined" && typeof DeviceMotionEvent.requestPermission==="function"){ await DeviceMotionEvent.requestPermission(); }
+  }catch(e){}
+  window.addEventListener("deviceorientation", onOrient, true); // relatif (gyro), bukan kompas
+
+  // 2) kamera
   try{
     const stream=await navigator.mediaDevices.getUserMedia({audio:false,
       video:{facingMode:{ideal:"environment"}, width:{ideal:2560}, height:{ideal:1440}}});
     video.srcObject=stream; await video.play();
   }catch(e){ $("gateErr").textContent="Kamera gagal: "+e.message+". Pastikan HTTPS & izin kamera."; return; }
 
-  // motion sensor permission (iOS)
-  try{
-    if(typeof DeviceOrientationEvent!=="undefined" && DeviceOrientationEvent.requestPermission){
-      const r=await DeviceOrientationEvent.requestPermission();
-      if(r!=="granted") $("gateErr").textContent="Izin sensor gerak ditolak — panduan arah tak akan akurat.";
-    }
-  }catch(e){}
-  window.addEventListener("deviceorientation", onOrient, true); // relative (gyro) — bukan absolute/kompas
-
   $("gate").style.display="none";
-  S.running=true;
+  S.running=true; S.startAt=performance.now();
   buildTargets();
   requestAnimationFrame(loop);
+
+  // 3) watchdog: kalau 2,5 dtk tak ada data sensor, beri peringatan + andalkan rana manual
+  setTimeout(()=>{ if(S.running && !S.cur.has){
+    $("sensorWarn").style.display="block";
+    $("sensorWarn").innerHTML="Sensor gerak belum aktif. iOS: Settings → Safari → <b>Motion &amp; Orientation Access</b> = ON, lalu buka ulang halaman. Sementara, ketuk tombol rana (◯) untuk memfoto manual.";
+  }}, 2500);
 }
 
 function onOrient(e){
@@ -289,6 +311,7 @@ function onOrient(e){
   S.cur.pitch=elev;
   S.cur.roll=(e.gamma||0); // derajat, untuk indikator level
   S.cur.has=true;
+  if($("sensorWarn").style.display==="block") $("sensorWarn").style.display="none";
 }
 
 /* ---------- main loop: HUD + constellation ---------- */
@@ -317,26 +340,44 @@ function loop(){
   lvlEl.textContent= S.cur.has? ("LVL "+(level?"OK":(S.cur.roll>0?"→":"←"))) : "LVL —";
   lvlEl.className=level?"good":"";
 
-  // place target marker
-  if(t){
+  // penanda target / panah / tahan-1-detik
+  const HOLD_MS=900, GRACE=1200;
+  if(t && S.cur.has){
     const sp=project(t.yaw,t.pitch,S.cur.yaw,S.cur.pitch,vw,vh);
-    if(sp.behind){ targetEl.style.display="none"; arrowEl.style.display="block";
-      arrowEl.textContent = (wrapPi(t.yaw-S.cur.yaw)>0)?"›":"‹";
-      arrowEl.style.left=(wrapPi(t.yaw-S.cur.yaw)>0?"88%":"12%"); arrowEl.style.top="50%";
-    } else {
-      arrowEl.style.display="none"; targetEl.style.display="flex";
+    const onscreen = !sp.behind && sp.x>10 && sp.x<vw-10 && sp.y>10 && sp.y<vh-10;
+    if(onscreen){
+      arrowEl.style.display="none"; targetEl.style.display="block";
       targetEl.style.left=sp.x+"px"; targetEl.style.top=sp.y+"px";
-      const aligned=np.dist<7*D2R && level;
-      targetEl.classList.toggle("off", !aligned);
+      const dist=Math.hypot(sp.x-vw/2, sp.y-vh/2);
+      const aligned = dist < vw*0.11 && level;
       if(aligned){
+        targetEl.classList.add("lock");
         if(!S.holdSince) S.holdSince=performance.now();
-        if(performance.now()-S.holdSince>450 && performance.now()-S.lastCapAt>400){ capture(S.activeIdx); }
-      } else { S.holdSince=0; }
+        const prog=clamp((performance.now()-S.holdSince)/HOLD_MS,0,1);
+        setHoldRing(prog);
+        if(prog>=1 && performance.now()-S.lastCapAt>500 && performance.now()-S.startAt>GRACE){ capture(S.activeIdx); resetHold(); }
+      } else { targetEl.classList.remove("lock"); resetHold(); }
+    } else {
+      targetEl.style.display="none"; resetHold(); showArrow(t,vw,vh);
     }
-  } else { targetEl.style.display="none"; arrowEl.style.display="none"; }
+  } else {
+    targetEl.style.display="none"; arrowEl.style.display="none"; resetHold();
+  }
 
   drawConstel();
   requestAnimationFrame(loop);
+}
+
+function setHoldRing(p){ holdRingEl.style.background="conic-gradient(var(--ok) "+(p*360)+"deg, rgba(255,255,255,.16) "+(p*360)+"deg)"; }
+function resetHold(){ S.holdSince=0; setHoldRing(0); }
+function showArrow(t,vw,vh){
+  const ax=wrapPi(t.yaw-S.cur.yaw);     // + : target ke kanan
+  const ay=-(t.pitch-S.cur.pitch);      // + : target lebih bawah di layar
+  const ang=Math.atan2(ay,ax);
+  arrowEl.style.display="flex";
+  const r=Math.min(vw,vh)*0.28;
+  arrowEl.style.transform="translate(-50%,-50%) translate("+(Math.cos(ang)*r).toFixed(0)+"px,"+(Math.sin(ang)*r).toFixed(0)+"px)";
+  arrowEl.querySelector(".chev").style.transform="rotate("+(ang*R2D).toFixed(0)+"deg)";
 }
 
 function project(ty,tp,vy,vp,vw,vh){
