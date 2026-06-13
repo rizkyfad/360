@@ -4,610 +4,664 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0B0F14">
-<title>Foto 360 — Equirectangular</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>Foto 360</title>
 <style>
   :root{
     --bg:#0B0F14; --panel:#121922; --line:#1E2A36;
     --blue:#1B7FD6; --orange:#FF7A1A; --ok:#25C26E; --white:#E6EDF3; --mut:#8A99A8;
-    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
-    --ui: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    --mono: ui-monospace,"SF Mono",Menlo,monospace; --ui: system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
   }
   *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
   html,body{margin:0; height:100%; background:var(--bg); color:var(--white); font-family:var(--ui); overflow:hidden;}
-  #app{position:fixed; inset:0; display:flex; flex-direction:column;}
+  .screen{position:fixed; inset:0; display:none; flex-direction:column;}
+  .screen.on{display:flex;}
+  .btn{padding:13px 16px; border-radius:12px; border:1px solid var(--line); background:var(--panel); color:var(--white); font:600 14px var(--ui);}
+  .btn.primary{background:var(--orange); border-color:var(--orange); color:#150a02;}
+  .btn.danger{background:#3a1115; border-color:#5c1b22; color:#ff8a8a;}
+  .btn:disabled{opacity:.4;}
+  .ic{width:40px; height:40px; border-radius:50%; border:1px solid var(--line); background:#0c1219cc; color:var(--white); font-size:18px; display:flex; align-items:center; justify-content:center;}
 
-  /* ---------- viewfinder ---------- */
-  #view{position:relative; flex:1; min-height:0; background:#000; overflow:hidden;}
+  /* ============ HOME ============ */
+  #home header{display:flex; align-items:center; gap:10px; padding:calc(env(safe-area-inset-top) + 14px) 16px 12px; border-bottom:1px solid var(--line);}
+  #home header h1{font:700 18px var(--ui); margin:0; flex:1;}
+  #home header .tag{font:600 10px var(--mono); color:var(--orange); border:1px solid var(--line); padding:3px 8px; border-radius:999px;}
+  #gal{flex:1; min-height:0; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:14px;}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:14px; overflow:hidden;}
+  .card img{width:100%; aspect-ratio:2/1; object-fit:cover; display:block; background:#000;}
+  .card .row{display:flex; align-items:center; gap:10px; padding:10px 12px;}
+  .card .nm{flex:1; min-width:0;}
+  .card .nm b{display:block; font:700 14px var(--ui); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .card .nm span{font:500 11px var(--mono); color:var(--mut);}
+  .card .del{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:#0c1219;color:#ff8a8a;font-size:15px;display:flex;align-items:center;justify-content:center;}
+  #empty{color:var(--mut); text-align:center; padding:48px 24px; font-size:14px; line-height:1.7;}
+  #cfgWarn{margin:14px; padding:14px; border:1px solid #5c4a1b; background:#221a0b; border-radius:12px; font-size:13px; line-height:1.6; color:#ffd28a; display:none;}
+  #cfgWarn code{font-family:var(--mono); color:#fff;}
+  #homeDock{padding:12px 16px calc(env(safe-area-inset-bottom) + 14px); border-top:1px solid var(--line); display:flex; gap:10px;}
+  #btnNew{flex:1; padding:17px; font-size:16px; border-radius:14px;}
+
+  /* ============ CAPTURE ============ */
+  #cap{background:#000;}
+  #view{position:relative; flex:1; min-height:0; overflow:hidden;}
   video{position:absolute; inset:0; width:100%; height:100%; object-fit:cover;}
   #hud{position:absolute; inset:0; pointer-events:none;}
-  /* fixed white aim dot = "you" */
-  #aimDot{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:26px; height:26px; border-radius:50%; background:#fff;
-    box-shadow:0 0 0 3px rgba(0,0,0,.35), 0 0 10px rgba(0,0,0,.45); z-index:6; pointer-events:none;}
-  /* white frame appears when target is near; fit the green box inside it */
+  /* bingkai bidik TETAP di tengah layar (tidak ikut sensor) */
   #frame{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:150px; height:198px; border:3px solid rgba(255,255,255,.95); border-radius:18px;
-    opacity:0; transition:opacity .12s; z-index:4; pointer-events:none;
-    box-shadow:0 0 0 2px rgba(0,0,0,.25);}
-  #frame.show{opacity:1;}
-  /* moving green target with a hole; chase its hole onto the aim dot, box into the frame */
-  #target{position:absolute; width:138px; height:184px; border-radius:16px;
-    background:rgba(37,194,110,.82); transform:translate(-50%,-50%); display:none; z-index:5;
-    -webkit-mask:radial-gradient(circle at 50% 50%, transparent 22px, #000 24px);
-    mask:radial-gradient(circle at 50% 50%, transparent 22px, #000 24px);
-    box-shadow:0 0 26px rgba(37,194,110,.5); transition:background .1s;}
-  #target.lock{background:rgba(37,194,110,.96);}
-  #holdRing{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    width:118px; height:118px; border-radius:50%; z-index:3; pointer-events:none;
-    background:conic-gradient(var(--ok) 0deg, rgba(255,255,255,.14) 0deg);
-    -webkit-mask:radial-gradient(transparent 49px,#000 51px); mask:radial-gradient(transparent 49px,#000 51px);}
-  /* directional arrow when target is off-screen */
-  #arrow{position:absolute; left:50%; top:50%; transform:translate(-50%,-50%);
-    display:none; flex-direction:column; align-items:center; pointer-events:none;}
-  #arrow .chev{font:800 60px/1 var(--ui); color:var(--orange); text-shadow:0 2px 10px #000; display:block;}
-  #arrow .txt{font:700 13px var(--ui); color:#fff; background:#000b; padding:5px 12px; border-radius:999px; margin-top:8px; white-space:nowrap;}
-  /* sensor warning banner */
-  #sensorWarn{position:absolute; left:50%; top:16%; transform:translateX(-50%); display:none;
-    max-width:82%; text-align:center; font:600 12.5px var(--ui); color:#150a02; background:var(--orange);
-    padding:10px 14px; border-radius:12px; box-shadow:0 4px 16px #0008; pointer-events:none; line-height:1.45;}
+    width:170px; height:170px; border-radius:50%; border:3px solid rgba(255,255,255,.95);
+    box-shadow:0 0 0 2px rgba(0,0,0,.3);}
+  #frame.ok{border-color:var(--ok); box-shadow:0 0 0 2px rgba(0,0,0,.3), 0 0 24px rgba(37,194,110,.7);}
+  /* target terkunci ke DUNIA (pakai yaw+pitch+roll penuh) */
+  #target{position:absolute; width:96px; height:96px; border-radius:50%; display:none;
+    background:rgba(37,194,110,.85); transform:translate(-50%,-50%);
+    box-shadow:0 0 22px rgba(37,194,110,.5);}
+  #target.lock{background:rgba(37,194,110,1);}
+  #arrow{position:absolute; left:50%; top:50%; display:none; flex-direction:column; align-items:center; pointer-events:none;}
+  #arrow .chev{font:800 56px/1 var(--ui); color:var(--orange); text-shadow:0 2px 10px #000;}
+  #sensorWarn{position:absolute; left:50%; top:14%; transform:translateX(-50%); display:none;
+    max-width:84%; text-align:center; font:600 12.5px var(--ui); color:#150a02; background:var(--orange);
+    padding:10px 14px; border-radius:12px; line-height:1.45;}
+  #capTop{position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
+    display:flex; align-items:center; gap:10px; pointer-events:auto; background:linear-gradient(#000a,#0000);}
+  #capTop .count{font:600 14px var(--mono);} #capTop .count b{color:var(--ok);}
+  #capTop .spacer{flex:1;}
+  #capDock{background:#000; padding:8px 0 calc(env(safe-area-inset-bottom) + 12px); display:flex; flex-direction:column; align-items:center; gap:8px;}
+  #constel{width:100%; max-width:520px; height:104px; display:block;}
+  #capBar{display:flex; align-items:center; gap:18px;}
+  #shutter{width:72px; height:72px; border-radius:50%; background:#39434d; border:5px solid #2a323b; transition:.15s;}
+  #shutter.ready{background:#fff; border-color:var(--ok); box-shadow:0 0 22px rgba(37,194,110,.8);}
+  #shutter:active.ready{transform:scale(.93);}
+  #hint{font:600 12px var(--ui); color:var(--mut); min-height:16px;}
 
-  /* top bar */
-  #top{position:absolute; left:0; right:0; top:0; padding:calc(env(safe-area-inset-top) + 10px) 14px 10px;
-    display:flex; align-items:center; gap:10px; pointer-events:auto;
-    background:linear-gradient(#000a, #0000);}
-  #top .count{font:600 14px var(--mono); color:var(--white);}
-  #top .count b{color:var(--ok);}
-  #top .spacer{flex:1;}
-  .ic{pointer-events:auto; width:40px; height:40px; border-radius:50%; border:1px solid var(--line);
-    background:#0c1219cc; color:var(--white); font-size:18px; display:flex; align-items:center; justify-content:center;}
-  #lvl{font:600 12px var(--mono); color:var(--mut); padding:6px 10px; border:1px solid var(--line);
-    border-radius:999px; background:#0c1219cc;}
-  #lvl.good{color:var(--ok); border-color:#1c4} 
+  /* ============ VIEWER ============ */
+  #vw header{display:flex; align-items:center; gap:12px; padding:calc(env(safe-area-inset-top) + 12px) 14px 12px; border-bottom:1px solid var(--line);}
+  #vw header h2{font:700 15px var(--ui); margin:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  #vcan{flex:1; min-height:0; width:100%; touch-action:none; background:#000;}
+  #vw footer{display:flex; gap:10px; padding:12px 14px calc(env(safe-area-inset-bottom) + 14px); border-top:1px solid var(--line);}
+  #vw footer .btn{flex:1;}
 
-  /* bottom constellation */
-  #dock{background:#000; padding:10px 0 calc(env(safe-area-inset-bottom) + 10px);
-    display:flex; flex-direction:column; align-items:center; gap:8px;}
-  #constel{width:100%; max-width:520px; height:120px; display:block;}
-  #bar{display:flex; align-items:center; gap:14px;}
-  #shutter{width:64px; height:64px; border-radius:50%; background:#fff; border:5px solid #c9d3dd;}
-  #shutter:active{transform:scale(.94);}
-  .btn{pointer-events:auto; padding:13px 16px; border-radius:12px; border:1px solid var(--line);
-    background:var(--panel); color:var(--white); font:600 14px var(--ui);}
-  .btn.primary{background:var(--orange); border-color:var(--orange); color:#150a02;}
-  .btn:disabled{opacity:.4;}
-
-  /* start / permission screen */
-  #gate{position:absolute; inset:0; z-index:30; background:var(--bg);
-    display:flex; flex-direction:column; gap:18px; align-items:center; justify-content:center; padding:28px; text-align:center;}
-  #gate h1{font:700 22px var(--ui); margin:0;}
-  #gate p{color:var(--mut); margin:0; max-width:340px; font-size:14px; line-height:1.5;}
-  #gate .big{padding:16px 26px; font-size:16px; border-radius:14px; background:var(--orange); color:#150a02; border:0; font-weight:700;}
-  .ring{width:54px; height:54px; border-radius:50%; border:3px solid var(--blue); border-top-color:var(--orange);
-    display:flex; align-items:center; justify-content:center; font:700 11px var(--mono); color:var(--white);}
-
-  /* result */
-  #result{position:absolute; inset:0; z-index:40; background:var(--bg); display:none; flex-direction:column;}
-  #result header{display:flex; align-items:center; gap:12px; padding:calc(env(safe-area-inset-top) + 12px) 16px 12px; border-bottom:1px solid var(--line);}
-  #result header h2{font:700 16px var(--ui); margin:0; flex:1;}
-  #rwrap{flex:1; min-height:0; overflow:auto; padding:14px; display:flex; flex-direction:column; gap:12px;}
-  #rimg{width:100%; border-radius:10px; border:1px solid var(--line); background:#000;}
-  #rmeta{font:500 12px var(--mono); color:var(--mut);}
-  #result footer{display:flex; gap:10px; padding:12px 16px calc(env(safe-area-inset-bottom) + 14px); border-top:1px solid var(--line);}
-  #result footer .btn{flex:1; text-align:center;}
-
-  /* settings sheet */
-  #sheet,#finish{position:absolute; inset:0; z-index:35; background:#000a; display:none; align-items:flex-end;}
-  #sheet .card,#finish .card{width:100%; background:var(--panel); border-top:1px solid var(--line);
-    border-radius:18px 18px 0 0; padding:18px 18px calc(env(safe-area-inset-bottom) + 18px); display:flex; flex-direction:column; gap:16px;}
+  /* overlays */
+  #busy{position:fixed; inset:0; z-index:60; display:none; flex-direction:column; gap:16px; align-items:center; justify-content:center; background:#000d; text-align:center; padding:24px;}
+  #busy .ring{width:62px;height:62px;border-radius:50%;border:4px solid var(--blue);border-top-color:var(--orange);animation:sp 1s linear infinite;}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  #busy b{font:700 15px var(--ui);} #busy span{font:500 12px var(--mono); color:var(--mut);}
+  #gate{position:fixed; inset:0; z-index:50; background:var(--bg); display:none; flex-direction:column; gap:18px; align-items:center; justify-content:center; padding:28px; text-align:center;}
+  #gate h1{font:700 21px var(--ui); margin:0;}
+  #gate p{color:var(--mut); margin:0; max-width:340px; font-size:14px; line-height:1.55;}
+  #gate .big{padding:16px 28px; font-size:16px; border-radius:14px; background:var(--orange); color:#150a02; border:0; font-weight:700;}
+  .err{color:#ff7b7b; font-size:13px; max-width:340px;}
+  #sheet{position:fixed; inset:0; z-index:55; background:#000a; display:none; align-items:flex-end;}
+  #sheet .card2{width:100%; background:var(--panel); border-top:1px solid var(--line); border-radius:18px 18px 0 0;
+    padding:18px 18px calc(env(safe-area-inset-bottom) + 18px); display:flex; flex-direction:column; gap:15px;}
   #sheet h3{margin:0; font:700 15px var(--ui);}
-  .row{display:flex; flex-direction:column; gap:7px;}
-  .row label{font:600 13px var(--ui); display:flex; justify-content:space-between;}
-  .row label b{color:var(--orange); font-variant-numeric:tabular-nums;}
+  .rowi{display:flex; flex-direction:column; gap:7px;}
+  .rowi label{font:600 13px var(--ui); display:flex; justify-content:space-between;}
+  .rowi label b{color:var(--orange);}
   input[type=range]{width:100%; accent-color:var(--orange);}
   .seg{display:flex; gap:8px;}
   .seg button{flex:1; padding:11px; border-radius:10px; border:1px solid var(--line); background:#0c1219; color:var(--white); font:600 13px var(--ui);}
   .seg button.on{background:var(--blue); border-color:var(--blue);}
-  .hint{font:500 12px var(--ui); color:var(--mut); line-height:1.5;}
-  #busy{position:absolute; inset:0; z-index:50; display:none; flex-direction:column; gap:14px; align-items:center; justify-content:center; background:#000c;}
-  #busy .ring{width:64px; height:64px;}
-  #busy span{font:600 14px var(--mono); color:var(--white);}
-  .err{color:#ff6b6b; font-size:13px; max-width:340px;}
 </style>
 </head>
 <body>
-<div id="app">
+
+<!-- ================= HOME ================= -->
+<div id="home" class="screen on">
+  <header>
+    <h1>Foto 360</h1><span class="tag">EQUIRECT · 2K</span>
+    <div class="ic" id="btnRefresh">↻</div>
+  </header>
+  <div id="cfgWarn"></div>
+  <div id="gal"><div id="empty">Memuat…</div></div>
+  <div id="homeDock">
+    <button class="btn primary" id="btnNew">📷 &nbsp;Foto 360 Baru</button>
+  </div>
+</div>
+
+<!-- ================= CAPTURE ================= -->
+<div id="cap" class="screen">
   <div id="view">
     <video id="video" playsinline autoplay muted></video>
     <div id="hud">
-      <div id="holdRing"></div>
-      <div id="frame"></div>
       <div id="target"></div>
-      <div id="aimDot"></div>
-      <div id="arrow"><div class="chev">›</div><div class="txt">putar</div></div>
+      <div id="frame"></div>
+      <div id="arrow"><div class="chev">›</div></div>
       <div id="sensorWarn"></div>
-      <div id="top">
+      <div id="capTop">
+        <div class="ic" id="btnCancel">✕</div>
         <div class="count"><b id="cdone">0</b>/<span id="ctot">0</span></div>
-        <div id="lvl">LVL —</div>
         <div class="spacer"></div>
         <div class="ic" id="btnSettings">⚙</div>
       </div>
     </div>
   </div>
-
-  <div id="dock">
+  <div id="capDock">
     <canvas id="constel"></canvas>
-    <div id="bar">
-      <button class="btn" id="btnReset">Ulang</button>
-      <div id="shutter"></div>
-      <button class="btn primary" id="btnDone" disabled>Selesai ▸</button>
+    <div id="hint">Arahkan lingkaran hijau ke bingkai tengah</div>
+    <div id="capBar">
+      <div style="width:84px"></div>
+      <button id="shutter" aria-label="foto"></button>
+      <button class="btn primary" id="btnFinish" disabled style="width:84px">Selesai</button>
     </div>
   </div>
 </div>
 
-<!-- gate -->
-<div id="gate">
-  <div class="ring">360</div>
-  <h1>Foto 360 Equirectangular</h1>
-  <p>Arahkan kamera, ikuti titik bidik hijau ke dalam kotak, tahan sampai terekam. Output: satu foto equirectangular HD.</p>
-  <button class="big" id="btnStart">Mulai</button>
-  <p class="err" id="gateErr"></p>
-  <p class="hint" style="font-size:12px">Butuh HTTPS + izin kamera & sensor gerak. Di plant: sensor pakai mode <b>relatif</b> (gyro), bukan kompas.</p>
-</div>
-
-<!-- settings -->
-<div id="sheet"><div class="card">
-  <h3>Pengaturan</h3>
-  <div class="row">
-    <label>Kepadatan titik <b id="densName">Standar</b></label>
-    <div class="seg" id="dens">
-      <button data-d="light">Ringan</button>
-      <button data-d="std" class="on">Standar</button>
-      <button data-d="full">Penuh</button>
-    </div>
-  </div>
-  <div class="row">
-    <label>FOV kamera (horizontal) <b><span id="fovV">63</span>°</b></label>
-    <input type="range" id="fov" min="45" max="80" step="1" value="63">
-    <div class="hint">Naikkan kalau jahitan kurang menyatu, turunkan kalau objek tampak melebar. Default 63°.</div>
-  </div>
-  <div class="row">
-    <label>Resolusi output <b id="resName">4096×2048</b></label>
-    <div class="seg" id="res">
-      <button data-r="2048">2K</button>
-      <button data-r="4096" class="on">4K HD</button>
-      <button data-r="6144">6K</button>
-    </div>
-  </div>
-  <button class="btn primary" id="sheetClose">Selesai</button>
-</div></div>
-
-<!-- finish action sheet -->
-<div id="finish"><div class="card">
-  <h3>Selesai motret lokasi ini?</h3>
-  <button class="btn primary" id="goExport">⤓ Export paket ke PC (kualitas tinggi)</button>
-  <button class="btn" id="goStitch">Jahit langsung di HP (cepat)</button>
-  <div class="hint">Export menyimpan foto mentah + arah tiap titik jadi satu file <b>.json</b> — buka di <b>stitcher.html</b> pada PC untuk dijahit sampai 6K/8K pakai GPU PC. "Jahit di HP" langsung jadi tapi terbatas kemampuan HP.</div>
-  <button class="btn" id="finishClose">Batal</button>
-</div></div>
-
-<!-- result -->
-<div id="result">
-  <header>
-    <h2>Hasil Equirectangular</h2>
-    <div class="ic" id="resBack">←</div>
-  </header>
-  <div id="rwrap">
-    <img id="rimg" alt="equirectangular">
-    <div id="rmeta"></div>
-  </div>
+<!-- ================= VIEWER ================= -->
+<div id="vw" class="screen">
+  <header><div class="ic" id="vBack">←</div><h2 id="vName">—</h2></header>
+  <canvas id="vcan"></canvas>
   <footer>
-    <button class="btn" id="resRetake">Foto lagi</button>
-    <button class="btn primary" id="resDownload">Download JPG</button>
+    <button class="btn" id="vDownload">⤓ Download</button>
+    <button class="btn danger" id="vDelete">Hapus</button>
   </footer>
 </div>
 
-<div id="busy"><div class="ring">⌛</div><span id="busyTxt">Menjahit…</span></div>
+<!-- overlays -->
+<div id="gate">
+  <h1>Mulai Foto 360</h1>
+  <p>Kejar lingkaran hijau ke bingkai tengah. Saat pas, tombol rana menyala — tekan untuk memfoto. Hasil dijahit & diupload otomatis.</p>
+  <button class="big" id="btnStart">Buka Kamera</button>
+  <p class="err" id="gateErr"></p>
+  <p style="color:var(--mut);font-size:12px" id="gateHint"></p>
+</div>
+<div id="busy"><div class="ring"></div><b id="busyT">Memproses…</b><span id="busyS"></span></div>
+<div id="sheet"><div class="card2">
+  <h3>Pengaturan</h3>
+  <div class="rowi"><label>Kepadatan titik <b id="densName">Standar</b></label>
+    <div class="seg" id="dens"><button data-d="light">Ringan</button><button data-d="std" class="on">Standar</button><button data-d="full">Penuh</button></div></div>
+  <div class="rowi"><label>FOV kamera <b><span id="fovV">63</span>°</b></label>
+    <input type="range" id="fov" min="45" max="80" step="1" value="63"></div>
+  <button class="btn primary" id="sheetClose">Selesai</button>
+</div></div>
 
 <script>
 "use strict";
+/* ================== KONFIGURASI (SIAP MUTASI — cukup isi 2 baris ini) ================== */
+const SUPABASE_URL      = "https://jplpkmchncehvwnjawfx.supabase.co";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImpwbHBrbWNobmNlaHZ3bmphd2Z4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEyOTUyODMsImV4cCI6MjA5Njg3MTI4M30.HOxiVu6uflMPm41s3nFpi4oTw53-A7vWIpc_DPyhePY";
+/* ======================================================================================= */
+const BUCKET="foto360", OUT_W=2048;   // output 2048×1024 (2K)
+
 const D2R=Math.PI/180, R2D=180/Math.PI, TAU=Math.PI*2;
 const clamp=(v,a,b)=>v<a?a:v>b?b:v;
-const wrapPi=a=>{a=((a+Math.PI)%TAU+TAU)%TAU-Math.PI;return a;};
+const wrapPi=a=>(((a+Math.PI)%TAU+TAU)%TAU-Math.PI);
 const $=id=>document.getElementById(id);
+const show=id=>{document.querySelectorAll(".screen").forEach(s=>s.classList.remove("on"));$(id).classList.add("on");};
 
-/* ---------- elements ---------- */
-const video=$("video"), targetEl=$("target"), arrowEl=$("arrow"), frameEl=$("frame"), aimDotEl=$("aimDot"), holdRingEl=$("holdRing");
-const constel=$("constel"), cctx=constel.getContext("2d");
+const S={ running:false, cur:{yaw:0,pitch:0,roll:0,has:false}, ref:{set:false,heading:0},
+  targets:[], shots:[], hFovDeg:+(localStorage.getItem("fov")||63),
+  density:localStorage.getItem("dens")||"std", activeIdx:-1, aligned:false,
+  lastName:localStorage.getItem("lastName")||"", stream:null };
 
-/* ---------- state ---------- */
-const S={
-  running:false, cur:{yaw:0,pitch:0,roll:0,has:false}, ref:{set:false,heading:0},
-  targets:[], shots:[], hFovDeg:63, density:"std", outW:4096,
-  capW:0, capH:0, activeIdx:-1, holdSince:0, lastCapAt:0
-};
-
-/* ---------- math: forward dir & rotation (verified) ---------- */
-// camera forward in world for a placement (yaw around Y up, pitch up positive)
-function dir(yaw,pitch){const cp=Math.cos(pitch);return {x:Math.sin(yaw)*cp, y:Math.sin(pitch), z:Math.cos(yaw)*cp};}
-// device forward in earth frame (X east, Y north, Z up) from alpha,beta,gamma
-function fwdEarth(a,b,g){
-  const ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b),cg=Math.cos(g),sg=Math.sin(g);
-  return {x:-ca*sg - sa*sb*cg, y:-sa*sg + ca*sb*cg, z:-cb*cg};
-}
-// world->camera 3x3 (column-major for WebGL) = transpose( Ry(yaw)Rx(-pitch)Rz(roll) )
-function Rcw(yaw,pitch,roll){
+/* ================== MATH (terverifikasi) ================== */
+function dir(yaw,pitch){const cp=Math.cos(pitch);return {x:Math.sin(yaw)*cp,y:Math.sin(pitch),z:Math.cos(yaw)*cp};}
+function mul3(A,B){const R=[[0,0,0],[0,0,0],[0,0,0]];for(let i=0;i<3;i++)for(let j=0;j<3;j++){let s=0;for(let k=0;k<3;k++)s+=A[i][k]*B[k][j];R[i][j]=s;}return R;}
+function Rcw(yaw,pitch,roll){ // cam<-world, column-major flat (uniformMatrix3fv)
   const cy=Math.cos(yaw),sy=Math.sin(yaw),cp=Math.cos(pitch),sp=Math.sin(pitch),cr=Math.cos(roll),sr=Math.sin(roll);
-  // Ry(yaw)
-  const Ry=[[cy,0,sy],[0,1,0],[-sy,0,cy]];
-  // Rx(-pitch)
-  const Rx=[[1,0,0],[0,cp,sp],[0,-sp,cp]];
-  // Rz(roll)
-  const Rz=[[cr,-sr,0],[sr,cr,0],[0,0,1]];
-  const m=mul(mul(Ry,Rx),Rz);          // world<-cam
-  const t=[[m[0][0],m[1][0],m[2][0]],[m[0][1],m[1][1],m[2][1]],[m[0][2],m[1][2],m[2][2]]]; // transpose = cam<-world
-  // column-major flat for gl.uniformMatrix3fv
+  const Ry=[[cy,0,sy],[0,1,0],[-sy,0,cy]],Rx=[[1,0,0],[0,cp,sp],[0,-sp,cp]],Rz=[[cr,-sr,0],[sr,cr,0],[0,0,1]];
+  const m=mul3(mul3(Ry,Rx),Rz);
+  const t=[[m[0][0],m[1][0],m[2][0]],[m[0][1],m[1][1],m[2][1]],[m[0][2],m[1][2],m[2][2]]];
   return [t[0][0],t[1][0],t[2][0], t[0][1],t[1][1],t[2][1], t[0][2],t[1][2],t[2][2]];
 }
-function mul(A,B){const R=[[0,0,0],[0,0,0],[0,0,0]];for(let i=0;i<3;i++)for(let j=0;j<3;j++){let s=0;for(let k=0;k<3;k++)s+=A[i][k]*B[k][j];R[i][j]=s;}return R;}
+// Orientasi penuh dari sensor (alpha,beta,gamma) -> yaw,pitch,roll kamera belakang.
+// Verified: roll sign + (500/500 orientasi acak).
+function deriveOrientation(a,b,g){
+  const ca=Math.cos(a),sa=Math.sin(a),cb=Math.cos(b),sb=Math.sin(b),cg=Math.cos(g),sg=Math.sin(g);
+  const Yd=[-sa*cb, ca*cb, sb];                                   // device Y di bumi (E,N,U)
+  const Zd=[ca*sg + sa*sb*cg, sa*sg - ca*sb*cg, cb*cg];           // device Z di bumi
+  const f=[-Zd[0], Zd[2]*-1, -Zd[1]];                             // pano (E,U,N): forward = -Zd
+  // ^ pano.x=E, pano.y=U, pano.z=N  => f=( -Zd.E, -Zd.U, -Zd.N )
+  f[1]=-Zd[2];
+  const u=[Yd[0], Yd[2], Yd[1]];
+  const yaw=Math.atan2(f[0],f[2]), pitch=Math.asin(clamp(f[1],-1,1));
+  const up0x=0-f[1]*f[0], up0y=1-f[1]*f[1], up0z=0-f[1]*f[2];
+  const l=Math.hypot(up0x,up0y,up0z)||1;
+  const ux=up0x/l, uy=up0y/l, uz=up0z/l;
+  const cx=uy*u[2]-uz*u[1], cy2=uz*u[0]-ux*u[2], cz=ux*u[1]-uy*u[0];
+  const s=cx*f[0]+cy2*f[1]+cz*f[2], c=ux*u[0]+uy*u[1]+uz*u[2];
+  return {yaw, pitch, roll:Math.atan2(s,c)};
+}
+function screenAngleRad(){
+  const a=(screen.orientation&&typeof screen.orientation.angle==="number")?screen.orientation.angle:(window.orientation||0);
+  return (a||0)*D2R;
+}
 
-/* ---------- constellation ---------- */
+/* ================== SUPABASE (REST, tanpa SDK) ================== */
+const sb={
+  ok:()=>SUPABASE_URL && SUPABASE_ANON_KEY,
+  h:(extra)=>Object.assign({apikey:SUPABASE_ANON_KEY, Authorization:"Bearer "+SUPABASE_ANON_KEY}, extra||{}),
+  async list(){
+    const r=await fetch(`${SUPABASE_URL}/storage/v1/object/list/${BUCKET}`,{method:"POST",
+      headers:sb.h({"Content-Type":"application/json"}),
+      body:JSON.stringify({prefix:"",limit:200,offset:0,sortBy:{column:"created_at",order:"desc"}})});
+    if(!r.ok) throw new Error("list "+r.status+" "+await r.text());
+    return r.json();
+  },
+  async upload(name,blob){
+    const r=await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(name)}`,{method:"POST",
+      headers:sb.h({"Content-Type":"image/jpeg","x-upsert":"true"}), body:blob});
+    if(!r.ok) throw new Error("upload "+r.status+" "+await r.text());
+  },
+  async remove(name){
+    const r=await fetch(`${SUPABASE_URL}/storage/v1/object/${BUCKET}/${encodeURIComponent(name)}`,{method:"DELETE",headers:sb.h()});
+    if(!r.ok) throw new Error("hapus "+r.status+" "+await r.text());
+  },
+  url:name=>`${SUPABASE_URL}/storage/v1/object/public/${BUCKET}/${encodeURIComponent(name)}`
+};
+
+/* ================== HOME / GALERI ================== */
+function parseName(fn){
+  const m=fn.match(/^(.*)_(\d{12,14})\.jpe?g$/i);
+  if(!m) return {nice:fn.replace(/\.jpe?g$/i,""), date:""};
+  const d=new Date(+m[2]);
+  return {nice:m[1].replace(/_/g," "), date:isNaN(d)?"":d.toLocaleString("id-ID",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"})};
+}
+async function loadGallery(){
+  const gal=$("gal");
+  if(!sb.ok()){
+    $("cfgWarn").style.display="block";
+    $("cfgWarn").innerHTML="<b>Konfigurasi belum diisi.</b> Buka file ini, isi 2 baris di bagian KONFIGURASI: <code>SUPABASE_URL</code> dan <code>SUPABASE_ANON_KEY</code>, lalu upload ulang ke GitHub.";
+    gal.innerHTML='<div id="empty">Galeri akan tampil setelah konfigurasi diisi.<br>Tombol Foto tetap bisa dipakai — hasil bisa di-download manual.</div>';
+    return;
+  }
+  $("cfgWarn").style.display="none";
+  gal.innerHTML='<div id="empty">Memuat…</div>';
+  try{
+    const items=(await sb.list()).filter(o=>/\.jpe?g$/i.test(o.name));
+    if(!items.length){ gal.innerHTML='<div id="empty">Belum ada foto 360.<br>Tekan <b>📷 Foto 360 Baru</b> untuk mulai.</div>'; return; }
+    gal.innerHTML="";
+    for(const it of items){
+      const {nice,date}=parseName(it.name);
+      const card=document.createElement("div"); card.className="card";
+      card.innerHTML=`<img loading="lazy" alt=""><div class="row"><div class="nm"><b></b><span></span></div><button class="del">🗑</button></div>`;
+      card.querySelector("img").src=sb.url(it.name);
+      card.querySelector("b").textContent=nice;
+      card.querySelector("span").textContent=date;
+      card.querySelector("img").onclick=()=>openViewer(it.name,nice);
+      card.querySelector(".nm").onclick=()=>openViewer(it.name,nice);
+      card.querySelector(".del").onclick=async(e)=>{e.stopPropagation();
+        if(!confirm(`Hapus "${nice}" dari database?`)) return;
+        try{ await sb.remove(it.name); card.remove(); if(!gal.children.length) loadGallery(); }
+        catch(err){ alert("Gagal hapus: "+err.message); } };
+      gal.appendChild(card);
+    }
+  }catch(e){
+    gal.innerHTML=`<div id="empty">Gagal memuat galeri.<br><span class="err">${e.message}</span><br><br>Cek bucket "<b>${BUCKET}</b>" & policy di Supabase.</div>`;
+  }
+}
+$("btnRefresh").onclick=loadGallery;
+
+/* ================== CAPTURE ================== */
 function buildTargets(){
-  const hFov=S.hFovDeg, vFov=2*R2D*Math.atan(Math.tan(hFov/2*D2R)*(4/3)); // portrait-ish capture ~3:4
+  const hFov=S.hFovDeg, vFov=2*R2D*Math.atan(Math.tan(hFov/2*D2R)*(4/3));
   const overlap = S.density==="full"?0.58:S.density==="light"?0.38:0.48;
-  // batasi langkah pitch supaya selalu ada baris di tengah (atas-bawah tidak "loncat")
   const pCap = S.density==="full"?28:S.density==="light"?40:33;
   const pStep=Math.min(Math.max(16, vFov*(1-overlap)), pCap);
   const colBase = 360/(hFov*(1-overlap));
-  // urutan tetap: ring horizon dulu (mulai depan yaw 0), lalu ring atas & bawah bergantian, lalu kutub
-  const ringsOrdered=[0];
-  for(let p=pStep;p<=70;p+=pStep){ ringsOrdered.push(p); ringsOrdered.push(-p); }
+  const rings=[0]; for(let p=pStep;p<=70;p+=pStep){rings.push(p);rings.push(-p);}
   const list=[];
-  for(const p of ringsOrdered){
+  for(const p of rings){
     const cols=Math.max(4, Math.round(colBase*Math.cos(p*D2R)));
-    // selang-seling offset yaw tiap baris biar overlap silang lebih rapat
-    const off = (ringsOrdered.indexOf(p)%2)? (TAU/cols)/2 : 0;
-    for(let k=0;k<cols;k++){ list.push({yaw:wrapPi(off+k*TAU/cols), pitch:p*D2R, done:false}); }
+    const off=(rings.indexOf(p)%2)?(TAU/cols)/2:0;
+    for(let k=0;k<cols;k++) list.push({yaw:wrapPi(off+k*TAU/cols), pitch:p*D2R, done:false});
   }
-  list.push({yaw:0,pitch: 84*D2R, done:false}); // zenith
-  list.push({yaw:0,pitch:-84*D2R, done:false}); // nadir
-  S.targets=list; S.shots=[]; S.activeIdx=-1;
+  list.push({yaw:0,pitch:84*D2R,done:false});
+  list.push({yaw:0,pitch:-84*D2R,done:false});
+  S.targets=list; S.shots=[]; S.activeIdx=-1; S.aligned=false;
   $("ctot").textContent=list.length; $("cdone").textContent=0;
-  $("btnDone").disabled=true;
+  $("btnFinish").disabled=true;
   sizeConstel();
 }
-
-/* ---------- camera + sensors ---------- */
-async function start(){
+async function startCapture(){
   $("gateErr").textContent="";
-  // 1) MINTA IZIN SENSOR DULU — harus di dalam gesture tap (syarat iOS), sebelum kamera
   try{
     if(typeof DeviceOrientationEvent!=="undefined" && typeof DeviceOrientationEvent.requestPermission==="function"){
       const r=await DeviceOrientationEvent.requestPermission();
       S.motionGranted=(r==="granted");
-    } else { S.motionGranted=true; } // Android / browser tanpa gate izin
+    } else S.motionGranted=true;
   }catch(e){ S.motionGranted=false; }
+  window.addEventListener("deviceorientation", onOrient, true);
   try{
-    if(typeof DeviceMotionEvent!=="undefined" && typeof DeviceMotionEvent.requestPermission==="function"){ await DeviceMotionEvent.requestPermission(); }
-  }catch(e){}
-  window.addEventListener("deviceorientation", onOrient, true); // relatif (gyro), bukan kompas
-
-  // 2) kamera
-  try{
-    const stream=await navigator.mediaDevices.getUserMedia({audio:false,
-      video:{facingMode:{ideal:"environment"}, width:{ideal:2560}, height:{ideal:1440}}});
-    video.srcObject=stream; await video.play();
-  }catch(e){ $("gateErr").textContent="Kamera gagal: "+e.message+". Pastikan HTTPS & izin kamera."; return; }
-
+    S.stream=await navigator.mediaDevices.getUserMedia({audio:false,
+      video:{facingMode:{ideal:"environment"}, width:{ideal:1920}, height:{ideal:1080}}});
+    $("video").srcObject=S.stream; await $("video").play();
+  }catch(e){ $("gateErr").textContent="Kamera gagal: "+e.message; return; }
   $("gate").style.display="none";
-  S.running=true; S.startAt=performance.now();
+  show("cap"); S.running=true; S.ref.set=false; S.cur.has=false;
   buildTargets();
   requestAnimationFrame(loop);
-
-  // 3) watchdog: kalau 2,5 dtk tak ada data sensor, beri peringatan + andalkan rana manual
   setTimeout(()=>{ if(S.running && !S.cur.has){
     $("sensorWarn").style.display="block";
-    $("sensorWarn").innerHTML="Sensor gerak belum aktif. iOS: Settings → Safari → <b>Motion &amp; Orientation Access</b> = ON, lalu buka ulang halaman. Sementara, ketuk tombol rana (◯) untuk memfoto manual.";
-  }}, 2500);
+    $("sensorWarn").innerHTML="Sensor gerak belum aktif. iOS: Settings → Safari → <b>Motion & Orientation Access</b> = ON, lalu buka ulang.";
+  }},2500);
 }
-
+function stopCapture(){
+  S.running=false;
+  window.removeEventListener("deviceorientation", onOrient, true);
+  if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); S.stream=null; }
+}
 function onOrient(e){
   if(e.alpha==null && e.beta==null) return;
-  const a=(e.alpha||0)*D2R, b=(e.beta||0)*D2R, g=(e.gamma||0)*D2R;
-  const f=fwdEarth(a,b,g);
-  const elev=Math.asin(clamp(f.z,-1,1));        // pitch — dari gravitasi (andal)
-  const head=Math.atan2(f.x,f.y);               // yaw relatif — dari gyro
-  if(!S.ref.set){ S.ref.heading=head; S.ref.set=true; }
-  S.cur.yaw=wrapPi(head-S.ref.heading);
-  S.cur.pitch=elev;
-  S.cur.roll=(e.gamma||0); // derajat, untuk indikator level
+  const o=deriveOrientation((e.alpha||0)*D2R,(e.beta||0)*D2R,(e.gamma||0)*D2R);
+  if(!S.ref.set){ S.ref.heading=o.yaw; S.ref.set=true; }
+  S.cur.yaw=wrapPi(o.yaw-S.ref.heading);
+  S.cur.pitch=o.pitch;
+  S.cur.roll=wrapPi(o.roll - screenAngleRad());   // kompensasi rotasi layar
   S.cur.has=true;
   if($("sensorWarn").style.display==="block") $("sensorWarn").style.display="none";
 }
-
-/* ---------- main loop: HUD + constellation ---------- */
 function activeTarget(){ for(let i=0;i<S.targets.length;i++) if(!S.targets[i].done) return i; return -1; }
 function angDist(y1,p1,y2,p2){const a=dir(y1,p1),b=dir(y2,p2);return Math.acos(clamp(a.x*b.x+a.y*b.y+a.z*b.z,-1,1));}
 
-let liveHalfTanX, liveHalfTanY;
-function loop(){
-  if(!S.running) return;
-  // live preview FOV (match capture hFov; vertical from element aspect)
-  const vw=video.clientWidth||1, vh=video.clientHeight||1;
-  liveHalfTanX=Math.tan(S.hFovDeg/2*D2R);
-  liveHalfTanY=liveHalfTanX*(vh/vw);
-
-  S.activeIdx=activeTarget();                 // target TETAP & berurutan (tidak loncat)
-  const t=S.activeIdx>=0?S.targets[S.activeIdx]:null;
-
-  // level indicator
-  const level=Math.abs(S.cur.roll)<8;
-  const lvlEl=$("lvl");
-  lvlEl.textContent= S.cur.has? ("LVL "+(level?"OK":(S.cur.roll>0?"→":"←"))) : "LVL —";
-  lvlEl.className=level?"good":"";
-
-  // penanda target / bingkai / panah / tahan-1-detik
-  const HOLD_MS=900, GRACE=1200;
-  if(t && S.cur.has){
-    const sp=project(t.yaw,t.pitch,S.cur.yaw,S.cur.pitch,vw,vh);
-    const onscreen = !sp.behind && sp.x>10 && sp.x<vw-10 && sp.y>10 && sp.y<vh-10;
-    if(onscreen){
-      arrowEl.style.display="none"; targetEl.style.display="block";
-      targetEl.style.left=sp.x+"px"; targetEl.style.top=sp.y+"px";
-      const dist=Math.hypot(sp.x-vw/2, sp.y-vh/2);
-      const near = dist < vw*0.28;            // bingkai putih muncul saat dekat
-      const aligned = dist < vw*0.10 && level; // kotak hijau pas di bingkai, bolongan di bulatan
-      frameEl.classList.toggle("show", near);
-      if(aligned){
-        targetEl.classList.add("lock");
-        if(!S.holdSince) S.holdSince=performance.now();
-        const prog=clamp((performance.now()-S.holdSince)/HOLD_MS,0,1);
-        setHoldRing(prog);
-        if(prog>=1 && performance.now()-S.lastCapAt>500 && performance.now()-S.startAt>GRACE){ capture(S.activeIdx); resetHold(); }
-      } else { targetEl.classList.remove("lock"); resetHold(); }
-    } else {
-      targetEl.style.display="none"; frameEl.classList.remove("show"); resetHold(); showArrow(t,vw,vh);
-    }
-  } else {
-    targetEl.style.display="none"; arrowEl.style.display="none"; frameEl.classList.remove("show"); resetHold();
-  }
-
-  drawConstel();
-  requestAnimationFrame(loop);
-}
-
-function setHoldRing(p){ holdRingEl.style.background="conic-gradient(var(--ok) "+(p*360)+"deg, rgba(255,255,255,.14) "+(p*360)+"deg)"; }
-function resetHold(){ S.holdSince=0; setHoldRing(0); }
-function showArrow(t,vw,vh){
-  const ax=wrapPi(t.yaw-S.cur.yaw);     // + : target ke kanan
-  const ay=-(t.pitch-S.cur.pitch);      // + : target lebih bawah di layar
-  const ang=Math.atan2(ay,ax);
-  arrowEl.style.display="flex";
-  const r=Math.min(vw,vh)*0.28;
-  arrowEl.style.transform="translate(-50%,-50%) translate("+(Math.cos(ang)*r).toFixed(0)+"px,"+(Math.sin(ang)*r).toFixed(0)+"px)";
-  arrowEl.querySelector(".chev").style.transform="rotate("+(ang*R2D).toFixed(0)+"deg)";
-}
-
-function project(ty,tp,vy,vp,vw,vh){
-  const R=Rcw(vy,vp,0); const d=dir(ty,tp);
-  // rc = R * d  (R is column-major flat: rc.x = R[0]*dx+R[3]*dy+R[6]*dz ...)
+let hx=1,hy=1;
+function project(ty,tp,vw,vh){
+  const R=Rcw(S.cur.yaw,S.cur.pitch,S.cur.roll);   // roll PENUH -> target terkunci ke dunia
+  const d=dir(ty,tp);
   const rx=R[0]*d.x+R[3]*d.y+R[6]*d.z;
   const ry=R[1]*d.x+R[4]*d.y+R[7]*d.z;
   const rz=R[2]*d.x+R[5]*d.y+R[8]*d.z;
   if(rz<=0.05) return {behind:true};
-  const nx=(rx/rz)/liveHalfTanX, ny=(ry/rz)/liveHalfTanY;
-  return {behind:false, x:vw/2 + nx*(vw/2), y:vh/2 - ny*(vh/2)};
+  return {behind:false, x:vw/2+(rx/rz)/hx*(vw/2), y:vh/2-(ry/rz)/hy*(vh/2)};
 }
-
-/* ---------- capture ---------- */
+function loop(){
+  if(!S.running) return;
+  const vw=$("video").clientWidth||1, vh=$("video").clientHeight||1;
+  hx=Math.tan(S.hFovDeg/2*D2R); hy=hx*(vh/vw);
+  S.activeIdx=activeTarget();
+  const t=S.activeIdx>=0?S.targets[S.activeIdx]:null;
+  let aligned=false;
+  if(t && S.cur.has){
+    const sp=project(t.yaw,t.pitch,vw,vh);
+    const on=!sp.behind && sp.x>-40 && sp.x<vw+40 && sp.y>-40 && sp.y<vh+40;
+    if(on){
+      $("arrow").style.display="none";
+      const tg=$("target"); tg.style.display="block"; tg.style.left=sp.x+"px"; tg.style.top=sp.y+"px";
+      aligned = angDist(S.cur.yaw,S.cur.pitch,t.yaw,t.pitch) < 6.5*D2R;
+      tg.classList.toggle("lock",aligned);
+      $("hint").textContent=aligned?"PAS — tekan tombol foto":"Arahkan lingkaran hijau ke bingkai tengah";
+    } else {
+      $("target").style.display="none";
+      const ax=wrapPi(t.yaw-S.cur.yaw), ay=-(t.pitch-S.cur.pitch);
+      const ang=Math.atan2(ay,ax), r=Math.min(vw,vh)*0.3;
+      const ar=$("arrow"); ar.style.display="flex";
+      ar.style.transform=`translate(-50%,-50%) translate(${(Math.cos(ang)*r).toFixed(0)}px,${(Math.sin(ang)*r).toFixed(0)}px)`;
+      ar.querySelector(".chev").style.transform=`rotate(${(ang*R2D).toFixed(0)}deg)`;
+      $("hint").textContent="Putar ke arah panah";
+    }
+  } else { $("target").style.display="none"; $("arrow").style.display="none"; }
+  S.aligned=aligned;
+  $("frame").classList.toggle("ok",aligned);
+  $("shutter").classList.toggle("ready",aligned);
+  drawConstel();
+  requestAnimationFrame(loop);
+}
+/* rana manual — hanya berfungsi saat PAS */
 const capCanvas=document.createElement("canvas");
-function capture(idx){
-  const t=S.targets[idx]; if(!t||t.done) return;
-  let w=video.videoWidth, h=video.videoHeight; if(!w||!h) return;
-  const maxSide=2560, sc=Math.min(1,maxSide/Math.max(w,h));
-  const cw=Math.round(w*sc), ch=Math.round(h*sc);
-  capCanvas.width=cw; capCanvas.height=ch;
-  capCanvas.getContext("2d").drawImage(video,0,0,cw,ch);
-  const off=document.createElement("canvas"); off.width=cw; off.height=ch;
-  off.getContext("2d").drawImage(capCanvas,0,0);
-  S.shots.push({canvas:off, yaw:S.cur.yaw, pitch:S.cur.pitch, roll:0, w:cw, h:ch});
-  t.done=true; S.lastCapAt=performance.now(); S.holdSince=0;
+$("shutter").onclick=()=>{
+  if(!S.aligned || S.activeIdx<0) return;
+  const v=$("video"); let w=v.videoWidth,h=v.videoHeight; if(!w||!h) return;
+  const sc=Math.min(1,1440/Math.max(w,h));
+  capCanvas.width=Math.round(w*sc); capCanvas.height=Math.round(h*sc);
+  capCanvas.getContext("2d").drawImage(v,0,0,capCanvas.width,capCanvas.height);
+  S.shots.push({ yaw:S.cur.yaw, pitch:S.cur.pitch, roll:S.cur.roll,
+    w:capCanvas.width, h:capCanvas.height, img:capCanvas.toDataURL("image/jpeg",0.85) });
+  S.targets[S.activeIdx].done=true;
   $("cdone").textContent=S.shots.length;
-  if(S.shots.length>=4) $("btnDone").disabled=false;
-  // flash
+  if(S.shots.length>=8) $("btnFinish").disabled=false;
   const fl=document.createElement("div");
-  fl.style.cssText="position:absolute;inset:0;background:#fff;opacity:.8;z-index:20;pointer-events:none;transition:opacity .35s";
-  $("view").appendChild(fl); requestAnimationFrame(()=>{fl.style.opacity="0";}); setTimeout(()=>fl.remove(),400);
-  if(navigator.vibrate) navigator.vibrate(30);
-}
+  fl.style.cssText="position:absolute;inset:0;background:#fff;opacity:.75;pointer-events:none;transition:opacity .3s";
+  $("view").appendChild(fl); requestAnimationFrame(()=>fl.style.opacity="0"); setTimeout(()=>fl.remove(),350);
+  if(navigator.vibrate) navigator.vibrate(25);
+};
+$("btnCancel").onclick=()=>{ if(!S.shots.length || confirm("Batalkan? Foto yang sudah diambil hilang.")){ stopCapture(); show("home"); } };
+$("btnNew").onclick=()=>{ $("gate").style.display="flex"; };
+$("btnStart").onclick=startCapture;
 
-/* ---------- constellation dock drawing ---------- */
-function sizeConstel(){
-  const r=constel.getBoundingClientRect();
-  constel.width=Math.round(r.width*devicePixelRatio); constel.height=Math.round(r.height*devicePixelRatio);
-}
-window.addEventListener("resize", sizeConstel);
-function constelPos(yaw,pitch,W,H){
-  const cx=W/2, cy=H/2, padX=W*0.07, padY=H*0.12;
-  const x=cx + (wrapPi(yaw)/Math.PI) * (cx-padX) * Math.cos(pitch);
-  const y=cy - (pitch/(Math.PI/2)) * (cy-padY);
-  return {x,y};
-}
+/* konstelasi titik */
+const constel=$("constel"), cctx=constel.getContext("2d");
+function sizeConstel(){ const r=constel.getBoundingClientRect();
+  constel.width=Math.round(r.width*devicePixelRatio); constel.height=Math.round(r.height*devicePixelRatio); }
+window.addEventListener("resize",sizeConstel);
 function drawConstel(){
   const W=constel.width,H=constel.height; cctx.clearRect(0,0,W,H);
   const dpr=devicePixelRatio;
   for(let i=0;i<S.targets.length;i++){
-    const t=S.targets[i], p=constelPos(t.yaw,t.pitch,W,H);
-    const isAct=(i===S.activeIdx && !t.done);
-    let r=(isAct?7:4.5)*dpr, col;
-    if(t.done) col="#25C26E"; else if(isAct) col="#FFFFFF"; else col="rgba(37,194,110,.42)";
-    cctx.beginPath(); cctx.arc(p.x,p.y,r,0,TAU); cctx.fillStyle=col; cctx.fill();
-    if(isAct){ cctx.lineWidth=2*dpr; cctx.strokeStyle="rgba(255,255,255,.6)"; cctx.beginPath(); cctx.arc(p.x,p.y,r+4*dpr,0,TAU); cctx.stroke(); }
+    const t=S.targets[i];
+    const x=W/2+(wrapPi(t.yaw)/Math.PI)*(W/2-W*0.06)*Math.cos(t.pitch);
+    const y=H/2-(t.pitch/(Math.PI/2))*(H/2-H*0.12);
+    const act=(i===S.activeIdx&&!t.done);
+    cctx.beginPath(); cctx.arc(x,y,(act?6.5:4)*dpr,0,TAU);
+    cctx.fillStyle=t.done?"#25C26E":act?"#FFFFFF":"rgba(37,194,110,.4)"; cctx.fill();
+    if(act){cctx.lineWidth=2*dpr;cctx.strokeStyle="rgba(255,255,255,.6)";cctx.beginPath();cctx.arc(x,y,10*dpr,0,TAU);cctx.stroke();}
   }
 }
 
-/* ====================================================================
-   WEBGL STITCH  → equirectangular HD
-   For each output pixel: world ray → inverse-rotate → project into photo,
-   sample with feathered alpha, composite (alpha-over) across all shots.
-==================================================================== */
-const VS=`attribute vec2 a; varying vec2 vUv;
-void main(){ vUv=vec2((a.x+1.0)*0.5, (1.0-a.y)*0.5); gl_Position=vec4(a,0.0,1.0); }`;
-const FS=`precision highp float; varying vec2 vUv;
-uniform sampler2D uTex; uniform mat3 uR; uniform float uHx; uniform float uHy; uniform float uF;
+/* ================== SELESAI → JAHIT (otomatis) → UPLOAD ================== */
+$("btnFinish").onclick=async()=>{
+  let name=prompt("Nama lokasi:", S.lastName||"");
+  if(name===null) return;
+  name=(name||"").trim()||"Pano";
+  S.lastName=name; localStorage.setItem("lastName",name);
+  stopCapture(); show("home");
+  busy(true,"Menjahit foto 360…","");
+  try{
+    const blob=await stitch2K(S.shots,(i,n)=>busy(true,"Menjahit foto 360…",`${i}/${n}`));
+    S.shots=[];                                  // sumber langsung dibuang — hemat memori
+    const fn=name.replace(/[\\/:*?"<>|]+/g,"-").replace(/\s+/g,"_").slice(0,60)+"_"+Date.now()+".jpg";
+    if(sb.ok()){
+      busy(true,"Mengupload…","");
+      await sb.upload(fn,blob);
+      busy(false);
+      loadGallery();
+    } else {
+      busy(false);
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement("a"); a.href=url; a.download=fn; a.click();
+      setTimeout(()=>URL.revokeObjectURL(url),10000);
+      alert("Konfigurasi Supabase belum diisi — hasil di-download saja.");
+    }
+  }catch(e){
+    busy(false);
+    alert("Gagal: "+e.message);
+  }
+};
+function busy(on,t,s){ $("busy").style.display=on?"flex":"none"; if(t!==undefined)$("busyT").textContent=t; if(s!==undefined)$("busyS").textContent=s; }
+
+/* jahit 2K di HP — WebGL2 argmax (seam Voronoi, anti-ghosting); fallback WebGL1 feather */
+const VS2=`#version 300 es
+in vec2 a; out vec2 vUv;
+void main(){ vUv=vec2((a.x+1.0)*0.5,(1.0-a.y)*0.5); gl_Position=vec4(a,0.0,1.0); }`;
+const FS2=`#version 300 es
+precision highp float; in vec2 vUv; out vec4 oc;
+uniform sampler2D uTex; uniform mat3 uR; uniform float uHx; uniform float uHy;
 const float PI=3.14159265359;
 void main(){
-  float lon=(vUv.x*2.0-1.0)*PI;
-  float lat=(0.5-vUv.y)*PI;
-  float cl=cos(lat);
-  vec3 rw=vec3(cl*sin(lon), sin(lat), cl*cos(lon));
-  vec3 rc=uR*rw;
-  if(rc.z<=0.0){ discard; }
-  float nx=(rc.x/rc.z)/uHx;
-  float ny=(rc.y/rc.z)/uHy;
-  if(abs(nx)>1.0||abs(ny)>1.0){ discard; }
-  vec2 uv=vec2((nx+1.0)*0.5, 1.0-(ny+1.0)*0.5);
-  vec3 col=texture2D(uTex,uv).rgb;
-  float fx=smoothstep(1.0,1.0-uF,abs(nx));
-  float fy=smoothstep(1.0,1.0-uF,abs(ny));
-  gl_FragColor=vec4(col, fx*fy);
+  float lon=(vUv.x*2.0-1.0)*PI, lat=(0.5-vUv.y)*PI, cl=cos(lat);
+  vec3 rc=uR*vec3(cl*sin(lon),sin(lat),cl*cos(lon));
+  if(rc.z<=0.0) discard;
+  float nx=(rc.x/rc.z)/uHx, ny=(rc.y/rc.z)/uHy;
+  if(abs(nx)>1.0||abs(ny)>1.0) discard;
+  float w=(1.0-abs(nx))*(1.0-abs(ny));
+  oc=vec4(texture(uTex,vec2((nx+1.0)*0.5,1.0-(ny+1.0)*0.5)).rgb,1.0);
+  gl_FragDepth=1.0-min(w,0.999);
 }`;
-function compile(gl,type,src){const s=gl.createShader(type);gl.shaderSource(s,src);gl.compileShader(s);
+const VS1=`attribute vec2 a; varying vec2 vUv;
+void main(){ vUv=vec2((a.x+1.0)*0.5,(1.0-a.y)*0.5); gl_Position=vec4(a,0.0,1.0); }`;
+const FS1=`precision highp float; varying vec2 vUv;
+uniform sampler2D uTex; uniform mat3 uR; uniform float uHx; uniform float uHy;
+const float PI=3.14159265359;
+void main(){
+  float lon=(vUv.x*2.0-1.0)*PI, lat=(0.5-vUv.y)*PI, cl=cos(lat);
+  vec3 rc=uR*vec3(cl*sin(lon),sin(lat),cl*cos(lon));
+  if(rc.z<=0.0) discard;
+  float nx=(rc.x/rc.z)/uHx, ny=(rc.y/rc.z)/uHy;
+  if(abs(nx)>1.0||abs(ny)>1.0) discard;
+  float fx=smoothstep(1.0,0.8,abs(nx)), fy=smoothstep(1.0,0.8,abs(ny));
+  gl_FragColor=vec4(texture2D(uTex,vec2((nx+1.0)*0.5,1.0-(ny+1.0)*0.5)).rgb, fx*fy);
+}`;
+function compileGL(gl,t,src){const s=gl.createShader(t);gl.shaderSource(s,src);gl.compileShader(s);
   if(!gl.getShaderParameter(s,gl.COMPILE_STATUS))throw new Error(gl.getShaderInfoLog(s));return s;}
+const loadImg=src=>new Promise((res,rej)=>{const im=new Image();im.onload=()=>res(im);im.onerror=rej;im.src=src;});
 
-async function stitch(){
-  if(S.shots.length<2){ alert("Minimal 2 foto."); return; }
-  $("busy").style.display="flex"; $("busyTxt").textContent="Menyiapkan…";
-  await new Promise(r=>setTimeout(r,30));
-  const W=S.outW, H=W/2;
+async function stitch2K(shots,onProg){
+  if(shots.length<2) throw new Error("foto kurang");
+  const W=OUT_W,H=W/2;
   const cv=document.createElement("canvas"); cv.width=W; cv.height=H;
-  const gl=cv.getContext("webgl",{preserveDrawingBuffer:true, premultipliedAlpha:false, alpha:true});
-  if(!gl){ $("busy").style.display="none"; alert("WebGL tidak tersedia di perangkat ini."); return; }
+  let gl=cv.getContext("webgl2",{preserveDrawingBuffer:true,alpha:true,depth:true,premultipliedAlpha:false});
+  const isGL2=!!gl;
+  if(!gl) gl=cv.getContext("webgl",{preserveDrawingBuffer:true,alpha:true,premultipliedAlpha:false});
+  if(!gl) throw new Error("WebGL tidak tersedia");
   const prog=gl.createProgram();
-  gl.attachShader(prog,compile(gl,gl.VERTEX_SHADER,VS));
-  gl.attachShader(prog,compile(gl,gl.FRAGMENT_SHADER,FS));
-  gl.linkProgram(prog); gl.useProgram(prog);
+  gl.attachShader(prog,compileGL(gl,gl.VERTEX_SHADER,isGL2?VS2:VS1));
+  gl.attachShader(prog,compileGL(gl,gl.FRAGMENT_SHADER,isGL2?FS2:FS1));
+  gl.linkProgram(prog);
+  if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  gl.useProgram(prog);
   const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
-  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1, 1,-1, -1,1, -1,1, 1,-1, 1,1]),gl.STATIC_DRAW);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
   const la=gl.getAttribLocation(prog,"a"); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la,2,gl.FLOAT,false,0,0);
-  const uR=gl.getUniformLocation(prog,"uR"), uHx=gl.getUniformLocation(prog,"uHx"),
-        uHy=gl.getUniformLocation(prog,"uHy"), uF=gl.getUniformLocation(prog,"uF"), uTex=gl.getUniformLocation(prog,"uTex");
+  const uR=gl.getUniformLocation(prog,"uR"),uHx=gl.getUniformLocation(prog,"uHx"),
+        uHy=gl.getUniformLocation(prog,"uHy"),uTex=gl.getUniformLocation(prog,"uTex");
   gl.viewport(0,0,W,H);
-  gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT);
-  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.clearColor(0,0,0,0);
+  if(isGL2){ gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.LESS); gl.clearDepth(1); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT); }
+  else { gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA); gl.clear(gl.COLOR_BUFFER_BIT); }
   gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
   gl.uniform1i(uTex,0); gl.activeTexture(gl.TEXTURE0);
-
-  for(let i=0;i<S.shots.length;i++){
-    $("busyTxt").textContent="Menjahit "+(i+1)+"/"+S.shots.length;
-    await new Promise(r=>setTimeout(r,0));
-    const sh=S.shots[i];
+  const hxF=Math.tan(S.hFovDeg/2*D2R);
+  for(let i=0;i<shots.length;i++){
+    onProg&&onProg(i+1,shots.length); await new Promise(r=>setTimeout(r,0));
+    const s=shots[i];
+    const im=await loadImg(s.img);
     const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
-    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,sh.canvas);
-    const hx=Math.tan(S.hFovDeg/2*D2R);
-    const hy=hx*(sh.h/sh.w);
-    gl.uniformMatrix3fv(uR,false,new Float32Array(Rcw(sh.yaw,sh.pitch,sh.roll)));
-    gl.uniform1f(uHx,hx); gl.uniform1f(uHy,hy); gl.uniform1f(uF,0.18);
+    gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);
+    gl.uniformMatrix3fv(uR,false,new Float32Array(Rcw(s.yaw,s.pitch,s.roll||0)));
+    gl.uniform1f(uHx,hxF); gl.uniform1f(uHy,hxF*(s.h/s.w));
     gl.drawArrays(gl.TRIANGLES,0,6);
     gl.deleteTexture(tex);
   }
-
-  // composite to 2D canvas (handles orientation), then fill holes vertically
-  $("busyTxt").textContent="Finalisasi…"; await new Promise(r=>setTimeout(r,20));
   const out=document.createElement("canvas"); out.width=W; out.height=H;
   const octx=out.getContext("2d");
   octx.fillStyle="#0e1116"; octx.fillRect(0,0,W,H);
   octx.drawImage(cv,0,0);
   fillHoles(octx,W,H);
-
-  const url=out.toDataURL("image/jpeg",0.92);
-  $("rimg").src=url; S.resultUrl=url; S.resultCanvas=out; S.resultName=S.lastName||"";
-  $("rmeta").textContent=`${W}×${H} • ${S.shots.length} foto • equirectangular 2:1`;
-  $("busy").style.display="none"; $("result").style.display="flex";
+  return await new Promise(res=>out.toBlob(res,"image/jpeg",0.9));
 }
-
-// simple vertical inpaint for any remaining transparent/empty pixels (poles/gaps)
 function fillHoles(ctx,W,H){
-  const img=ctx.getImageData(0,0,W,H), d=img.data;
+  const img=ctx.getImageData(0,0,W,H),d=img.data;
   for(let x=0;x<W;x++){
-    let lastR=-1,lastG=0,lastB=0;
-    for(let y=0;y<H;y++){ const i=(y*W+x)*4;
-      if(d[i+3]<8 && (d[i]+d[i+1]+d[i+2])<14){ if(lastR>=0){d[i]=lastR;d[i+1]=lastG;d[i+2]=lastB;d[i+3]=255;} }
-      else { lastR=d[i];lastG=d[i+1];lastB=d[i+2]; }
-    }
-    // top-down again for top gaps
-    lastR=-1;
-    for(let y=H-1;y>=0;y--){ const i=(y*W+x)*4;
-      if(d[i+3]<8){ if(lastR>=0){d[i]=lastR;d[i+1]=lastG;d[i+2]=lastB;d[i+3]=255;} }
-      else { lastR=d[i];lastG=d[i+1];lastB=d[i+2]; }
-    }
+    let lr=-1,lg=0,lb=0;
+    for(let y=0;y<H;y++){const i=(y*W+x)*4;
+      if(d[i+3]<8&&(d[i]+d[i+1]+d[i+2])<14){if(lr>=0){d[i]=lr;d[i+1]=lg;d[i+2]=lb;d[i+3]=255;}}
+      else{lr=d[i];lg=d[i+1];lb=d[i+2];}}
+    lr=-1;
+    for(let y=H-1;y>=0;y--){const i=(y*W+x)*4;
+      if(d[i+3]<8){if(lr>=0){d[i]=lr;d[i+1]=lg;d[i+2]=lb;d[i+3]=255;}}
+      else{lr=d[i];lg=d[i+1];lb=d[i+2];}}
   }
   ctx.putImageData(img,0,0);
 }
 
-/* ---------- export package for PC stitcher ---------- */
-function safeName(s){ return (s||"").trim().replace(/[\\/:*?"<>|]+/g,"-").replace(/\s+/g,"_").slice(0,60); }
-// iOS Safari sering gagal pakai <a download>; pakai Web Share kalau ada
-async function saveBlob(blob, filename){
+/* ================== VIEWER 360 ================== */
+let vState={name:"",nice:"",gl:null,u:{},yaw:0,pitch:0,fov:75*D2R};
+const VSV=`attribute vec2 a; varying vec2 vUv;
+void main(){ vUv=vec2((a.x+1.0)*0.5,(1.0-a.y)*0.5); gl_Position=vec4(a,0.0,1.0); }`;
+const FSV=`precision highp float; varying vec2 vUv;
+uniform sampler2D uPano; uniform float uYaw,uPitch,uFov,uAspect;
+const float PI=3.14159265359;
+void main(){
+  vec2 p=(vUv*2.0-1.0); p.x*=uAspect;
+  float t=tan(uFov*0.5);
+  vec3 rd=normalize(vec3(p.x*t, -p.y*t, 1.0));
+  float cp=cos(uPitch), sp=sin(uPitch);
+  vec3 r1=vec3(rd.x, cp*rd.y - sp*rd.z, sp*rd.y + cp*rd.z);
+  float cy=cos(uYaw), sy=sin(uYaw);
+  vec3 rw=vec3(cy*r1.x + sy*r1.z, r1.y, -sy*r1.x + cy*r1.z);
+  float lon=atan(rw.x, rw.z), lat=asin(clamp(rw.y,-1.0,1.0));
+  gl_FragColor=texture2D(uPano, vec2(lon/(2.0*PI)+0.5, 0.5 - lat/PI));
+}`;
+async function openViewer(name,nice){
+  vState.name=name; vState.nice=nice; $("vName").textContent=nice;
+  show("vw");
+  const c=$("vcan");
+  c.width=Math.min(1400,c.clientWidth*devicePixelRatio); c.height=Math.round(c.clientHeight*devicePixelRatio);
+  const gl=c.getContext("webgl"); vState.gl=gl;
+  if(!gl) return;
+  const prog=gl.createProgram();
+  gl.attachShader(prog,compileGL(gl,gl.VERTEX_SHADER,VSV));
+  gl.attachShader(prog,compileGL(gl,gl.FRAGMENT_SHADER,FSV));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  const buf=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,buf);
+  gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+  const la=gl.getAttribLocation(prog,"a"); gl.enableVertexAttribArray(la); gl.vertexAttribPointer(la,2,gl.FLOAT,false,0,0);
+  vState.u={yaw:gl.getUniformLocation(prog,"uYaw"),pitch:gl.getUniformLocation(prog,"uPitch"),
+    fov:gl.getUniformLocation(prog,"uFov"),aspect:gl.getUniformLocation(prog,"uAspect"),pano:gl.getUniformLocation(prog,"uPano")};
+  const im=await loadImg(sb.url(name)+"?t="+Date.now());
+  const tex=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,tex);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,im);
+  gl.uniform1i(vState.u.pano,0);
+  vState.yaw=0; vState.pitch=0; drawV();
+}
+function drawV(){
+  const gl=vState.gl; if(!gl) return;
+  const c=$("vcan");
+  gl.viewport(0,0,c.width,c.height);
+  gl.uniform1f(vState.u.yaw,vState.yaw); gl.uniform1f(vState.u.pitch,vState.pitch);
+  gl.uniform1f(vState.u.fov,vState.fov); gl.uniform1f(vState.u.aspect,c.width/c.height);
+  gl.drawArrays(gl.TRIANGLES,0,6);
+}
+(function(){
+  const c=$("vcan"); let down=false,px=0,py=0,pd=0;
+  c.addEventListener("pointerdown",e=>{down=true;px=e.clientX;py=e.clientY;c.setPointerCapture(e.pointerId);});
+  c.addEventListener("pointermove",e=>{ if(!down)return;
+    vState.yaw-=(e.clientX-px)*0.006;
+    vState.pitch=clamp(vState.pitch+(e.clientY-py)*0.006,-1.45,1.45);
+    px=e.clientX;py=e.clientY; drawV(); });
+  c.addEventListener("pointerup",()=>down=false);
+  c.addEventListener("wheel",e=>{e.preventDefault(); vState.fov=clamp(vState.fov+e.deltaY*0.001,0.5,1.95); drawV();},{passive:false});
+})();
+$("vBack").onclick=()=>{ show("home"); };
+$("vDownload").onclick=async()=>{
   try{
-    const file=new File([blob], filename, {type:blob.type});
-    if(navigator.canShare && navigator.canShare({files:[file]})){
-      await navigator.share({files:[file], title:filename});
-      return;
-    }
-  }catch(e){ if(e && e.name==="AbortError") return; }
-  const url=URL.createObjectURL(blob);
-  const a=document.createElement("a"); a.href=url; a.download=filename; a.rel="noopener";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(()=>URL.revokeObjectURL(url),10000);
-}
-function exportPkg(){
-  if(S.shots.length<2){ alert("Minimal 2 foto."); return; }
-  let name=prompt("Nama lokasi untuk paket ini:", S.lastName||"");
-  if(name===null) return;            // batal
-  name=name.trim();
-  S.lastName=name;
-  const pkg={ version:1, app:"foto360", name:name, createdAt:new Date().toISOString(),
-    hFovDeg:S.hFovDeg,
-    shots:S.shots.map(s=>({ yaw:s.yaw, pitch:s.pitch, roll:s.roll, w:s.w, h:s.h,
-      img:s.canvas.toDataURL("image/jpeg",0.9) })) };
-  const blob=new Blob([JSON.stringify(pkg)],{type:"application/json"});
-  const fn=(safeName(name)||"pano")+"_"+Date.now()+".json";
-  saveBlob(blob, fn);
-}
+    const r=await fetch(sb.url(vState.name)); const b=await r.blob();
+    const file=new File([b],vState.name,{type:"image/jpeg"});
+    if(navigator.canShare && navigator.canShare({files:[file]})){ await navigator.share({files:[file],title:vState.nice}); return; }
+    const url=URL.createObjectURL(b);
+    const a=document.createElement("a"); a.href=url; a.download=vState.name; a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),10000);
+  }catch(e){ if(e.name!=="AbortError") alert("Gagal download: "+e.message); }
+};
+$("vDelete").onclick=async()=>{
+  if(!confirm(`Hapus "${vState.nice}" dari database?`)) return;
+  try{ await sb.remove(vState.name); show("home"); loadGallery(); }
+  catch(e){ alert("Gagal hapus: "+e.message); }
+};
 
-/* ---------- UI wiring ---------- */
-$("btnStart").onclick=start;
-$("shutter").onclick=()=>{ const i=activeTarget(); if(i>=0 && S.cur.has!==undefined) capture(i); };
-$("btnDone").onclick=()=>$("finish").style.display="flex";
-$("finishClose").onclick=()=>$("finish").style.display="none";
-$("finish").onclick=e=>{ if(e.target===$("finish")) $("finish").style.display="none"; };
-$("goExport").onclick=()=>{ $("finish").style.display="none"; exportPkg(); };
-$("goStitch").onclick=()=>{ $("finish").style.display="none"; stitch(); };
-$("btnReset").onclick=()=>{ if(confirm("Ulangi semua foto?")) buildTargets(); };
+/* ================== settings ================== */
 $("btnSettings").onclick=()=>$("sheet").style.display="flex";
 $("sheetClose").onclick=()=>$("sheet").style.display="none";
-$("sheet").onclick=e=>{ if(e.target===$("sheet")) $("sheet").style.display="none"; };
-$("fov").oninput=e=>{ S.hFovDeg=+e.target.value; $("fovV").textContent=e.target.value; };
-$("fov").onchange=()=>buildTargets();
-document.querySelectorAll("#dens button").forEach(b=>b.onclick=()=>{
-  document.querySelectorAll("#dens button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
-  S.density=b.dataset.d; $("densName").textContent=b.textContent; buildTargets();
+$("sheet").onclick=e=>{ if(e.target===$("sheet"))$("sheet").style.display="none"; };
+$("fov").value=S.hFovDeg; $("fovV").textContent=S.hFovDeg;
+$("fov").oninput=e=>{S.hFovDeg=+e.target.value;$("fovV").textContent=e.target.value;localStorage.setItem("fov",e.target.value);};
+$("fov").onchange=()=>{ if(S.running&&!S.shots.length) buildTargets(); };
+document.querySelectorAll("#dens button").forEach(b=>{
+  b.classList.toggle("on",b.dataset.d===S.density);
+  b.onclick=()=>{document.querySelectorAll("#dens button").forEach(x=>x.classList.remove("on"));b.classList.add("on");
+    S.density=b.dataset.d;$("densName").textContent=b.textContent;localStorage.setItem("dens",b.dataset.d);
+    if(S.running&&!S.shots.length) buildTargets();};
+  if(b.dataset.d===S.density)$("densName").textContent=b.textContent;
 });
-document.querySelectorAll("#res button").forEach(b=>b.onclick=()=>{
-  document.querySelectorAll("#res button").forEach(x=>x.classList.remove("on")); b.classList.add("on");
-  S.outW=+b.dataset.r; $("resName").textContent=`${S.outW}×${S.outW/2}`;
-});
-$("resBack").onclick=$("resRetake").onclick=()=>{ $("result").style.display="none"; };
-$("resDownload").onclick=()=>{
-  if(!S.resultCanvas) return;
-  const base=safeName(S.resultName)||"equirectangular";
-  S.resultCanvas.toBlob(b=>saveBlob(b, base+"_"+Date.now()+".jpg"), "image/jpeg", 0.92);
-};
-sizeConstel();
+
+loadGallery();
 </script>
 </body>
 </html>
